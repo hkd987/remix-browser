@@ -57,7 +57,7 @@ cargo build --release
 ### Requirements
 
 - **Google Chrome** or **Chromium** installed (auto-detected)
-- **Rust 1.85+** only needed if building from source
+- **Rust 1.88+** only needed if building from source
 
 ## Quick Start
 
