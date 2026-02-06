@@ -11,6 +11,8 @@
   </p>
 </p>
 
+[![CI](https://github.com/hkd987/remix-browser/actions/workflows/ci.yml/badge.svg)](https://github.com/hkd987/remix-browser/actions/workflows/ci.yml)
+
 ---
 
 A Rust-native [MCP](https://modelcontextprotocol.io/) server that gives AI agents full control over a real Chrome browser through the Chrome DevTools Protocol. No browser extensions, no Puppeteer, no Node.js — just a single binary that speaks CDP.
@@ -29,20 +31,33 @@ A Rust-native [MCP](https://modelcontextprotocol.io/) server that gives AI agent
 
 ## Installation
 
+### Claude Code Plugin (recommended)
+
+```
+/plugin marketplace add hkd987/remix-browser
+/plugin install remix-browser@hkd987-remix-browser
+```
+
+That's it — the binary downloads automatically on first use. No Rust required.
+
+### Download pre-built binary
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hkd987/remix-browser/main/scripts/install.sh | sh
+```
+
 ### From source
 
 ```bash
-git clone https://github.com/anthropics/remix-browser.git
+git clone https://github.com/hkd987/remix-browser.git
 cd remix-browser
 cargo build --release
 ```
 
-The binary is at `target/release/remix-browser`.
-
 ### Requirements
 
-- **Rust 1.85+** (2021 edition)
 - **Google Chrome** or **Chromium** installed (auto-detected)
+- **Rust 1.88+** only needed if building from source
 
 ## Quick Start
 
