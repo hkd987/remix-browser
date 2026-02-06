@@ -1,0 +1,12 @@
+{
+  "name": "hkd987-remix-browser",
+  "owner": { "name": "remix-browser contributors" },
+  "plugins": [
+    {
+      "name": "remix-browser",
+      "source": "./",
+      "description": "Blazing fast headless Chrome automation via CDP — no extension needed",
+      "version": "0.1.0"
+    }
+  ]
+}
