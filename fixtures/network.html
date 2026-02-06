@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Network Test Page</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        #results { margin-top: 20px; padding: 10px; background: #f0f0f0; min-height: 50px; }
+        button { padding: 8px 16px; margin: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>Network Test</h1>
+
+    <button id="fetch-json">Fetch JSON</button>
+    <button id="fetch-text">Fetch Text</button>
+    <button id="post-data">POST Data</button>
+
+    <div id="results">
+        <p>Click a button to make a network request.</p>
+    </div>
+
+    <script>
+        var results = document.getElementById('results');
+
+        document.getElementById('fetch-json').addEventListener('click', function() {
+            results.textContent = 'Fetching...';
+            fetch('/api/data')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    results.textContent = 'JSON: ' + JSON.stringify(data);
+                })
+                .catch(function(e) {
+                    results.textContent = 'Error: ' + e.message;
+                });
+        });
+
+        document.getElementById('fetch-text').addEventListener('click', function() {
+            results.textContent = 'Fetching...';
+            fetch('/api/text')
+                .then(function(r) { return r.text(); })
+                .then(function(text) {
+                    results.textContent = 'Text: ' + text;
+                })
+                .catch(function(e) {
+                    results.textContent = 'Error: ' + e.message;
+                });
+        });
+
+        document.getElementById('post-data').addEventListener('click', function() {
+            results.textContent = 'Posting...';
+            fetch('/api/submit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: 'test', value: 42 })
+            })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    results.textContent = 'Response: ' + JSON.stringify(data);
+                })
+                .catch(function(e) {
+                    results.textContent = 'Error: ' + e.message;
+                });
+        });
+    </script>
+</body>
+</html>

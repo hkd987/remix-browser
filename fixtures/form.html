@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Form Test Page</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        .form-group { margin: 10px 0; }
+        label { display: block; margin-bottom: 5px; }
+        input, textarea, select { padding: 8px; width: 300px; }
+        #result { margin-top: 20px; padding: 10px; background: #f0f0f0; display: none; }
+    </style>
+</head>
+<body>
+    <h1>Form Test</h1>
+    <form id="test-form">
+        <div class="form-group">
+            <label for="name">Name:</label>
+            <input type="text" id="name" name="name" placeholder="Enter name">
+        </div>
+        <div class="form-group">
+            <label for="email">Email:</label>
+            <input type="email" id="email" name="email" placeholder="Enter email">
+        </div>
+        <div class="form-group">
+            <label for="color">Favorite Color:</label>
+            <select id="color" name="color">
+                <option value="">Select...</option>
+                <option value="red">Red</option>
+                <option value="blue">Blue</option>
+                <option value="green">Green</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="message">Message:</label>
+            <textarea id="message" name="message" rows="4" placeholder="Enter message"></textarea>
+        </div>
+        <button type="submit" id="submit-btn">Submit</button>
+    </form>
+    <div id="result"></div>
+    <script>
+        document.getElementById('test-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            var data = {
+                name: document.getElementById('name').value,
+                email: document.getElementById('email').value,
+                color: document.getElementById('color').value,
+                message: document.getElementById('message').value
+            };
+            var result = document.getElementById('result');
+            result.style.display = 'block';
+            result.textContent = 'Form submitted: ' + JSON.stringify(data);
+        });
+    </script>
+</body>
+</html>

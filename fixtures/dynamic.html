@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dynamic Content Test Page</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        .loading { color: gray; font-style: italic; }
+        .loaded { color: green; font-weight: bold; }
+        #dynamic-content { min-height: 50px; padding: 10px; border: 1px solid #ccc; }
+    </style>
+</head>
+<body>
+    <h1>Dynamic Content Test</h1>
+
+    <button id="load-btn">Load Content</button>
+    <button id="show-hide-btn">Toggle Element</button>
+
+    <div id="dynamic-content">
+        <p class="loading">Waiting for content...</p>
+    </div>
+
+    <div id="toggle-target" style="padding: 10px; background: #e0e0ff; margin-top: 10px;">
+        This element can be toggled
+    </div>
+
+    <div id="delayed-element-container"></div>
+
+    <script>
+        // Load content with delay
+        document.getElementById('load-btn').addEventListener('click', function() {
+            document.getElementById('dynamic-content').innerHTML = '<p class="loading">Loading...</p>';
+            setTimeout(function() {
+                document.getElementById('dynamic-content').innerHTML =
+                    '<p class="loaded" id="loaded-text">Content loaded successfully!</p>' +
+                    '<ul id="item-list">' +
+                    '<li class="item">Item 1</li>' +
+                    '<li class="item">Item 2</li>' +
+                    '<li class="item">Item 3</li>' +
+                    '</ul>';
+            }, 500);
+        });
+
+        // Toggle visibility
+        document.getElementById('show-hide-btn').addEventListener('click', function() {
+            var el = document.getElementById('toggle-target');
+            if (el.style.display === 'none') {
+                el.style.display = 'block';
+            } else {
+                el.style.display = 'none';
+            }
+        });
+
+        // Inject element after delay (for wait_for tests)
+        setTimeout(function() {
+            var container = document.getElementById('delayed-element-container');
+            var el = document.createElement('div');
+            el.id = 'delayed-element';
+            el.textContent = 'I appeared after 1 second!';
+            el.style.padding = '10px';
+            el.style.background = '#e0ffe0';
+            el.style.marginTop = '10px';
+            container.appendChild(el);
+        }, 1000);
+    </script>
+</body>
+</html>

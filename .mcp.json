@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "remix-browser": {
+      "command": "/Users/lumatthews/Documents/GitHub/remix-browser/target/release/remix-browser",
+      "args": [],
+      "env": {}
+    }
+  }
+}

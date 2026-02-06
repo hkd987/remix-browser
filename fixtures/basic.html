@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Basic Test Page</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        .highlight { color: red; font-weight: bold; }
+        #hidden-el { display: none; }
+    </style>
+</head>
+<body>
+    <h1 id="title">Hello, remix-browser!</h1>
+    <p id="description">This is a basic test page for integration testing.</p>
+    <div class="content">
+        <p class="highlight">Important text</p>
+        <p>Normal paragraph</p>
+        <a href="#clicked" id="test-link">Click me</a>
+    </div>
+    <div id="hidden-el">This is hidden</div>
+    <div id="click-result"></div>
+    <script>
+        document.getElementById('test-link').addEventListener('click', function(e) {
+            e.preventDefault();
+            document.getElementById('click-result').textContent = 'Link was clicked!';
+        });
+    </script>
+</body>
+</html>

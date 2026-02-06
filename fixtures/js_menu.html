@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>JS Menu Test Page</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        .menu-bar { display: flex; gap: 0; background: #333; padding: 0; }
+        .menu-item { position: relative; }
+        .menu-btn {
+            background: #333; color: white; border: none;
+            padding: 12px 20px; cursor: pointer; font-size: 14px;
+        }
+        .menu-btn:hover { background: #555; }
+        .dropdown {
+            display: none; position: absolute; top: 100%; left: 0;
+            background: white; border: 1px solid #ccc; min-width: 180px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2); z-index: 1000;
+        }
+        .dropdown.open { display: block; }
+        .dropdown a {
+            display: block; padding: 10px 16px; color: #333;
+            text-decoration: none; border-bottom: 1px solid #eee;
+        }
+        .dropdown a:hover { background: #f0f0f0; }
+        #action-log { margin-top: 20px; padding: 10px; background: #f9f9f9; min-height: 100px; }
+        .overlay-menu {
+            display: none; position: fixed; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: white; border: 2px solid #333; padding: 20px;
+            z-index: 2000; min-width: 200px;
+        }
+        .overlay-menu.open { display: block; }
+        .overlay-backdrop {
+            display: none; position: fixed; top: 0; left: 0;
+            width: 100%; height: 100%; background: rgba(0,0,0,0.5);
+            z-index: 1999;
+        }
+        .overlay-backdrop.open { display: block; }
+    </style>
+</head>
+<body>
+    <h1>JS Menu Test</h1>
+
+    <!-- Standard dropdown menu -->
+    <nav class="menu-bar">
+        <div class="menu-item">
+            <button class="menu-btn" data-menu="file">File</button>
+            <div class="dropdown" id="file-menu">
+                <a href="#" data-action="new">New</a>
+                <a href="#" data-action="open">Open</a>
+                <a href="#" data-action="save">Save</a>
+            </div>
+        </div>
+        <div class="menu-item">
+            <button class="menu-btn" data-menu="edit">Edit</button>
+            <div class="dropdown" id="edit-menu">
+                <a href="#" data-action="undo">Undo</a>
+                <a href="#" data-action="redo">Redo</a>
+                <a href="#" data-action="cut">Cut</a>
+                <a href="#" data-action="copy">Copy</a>
+                <a href="#" data-action="paste">Paste</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Button that opens overlay menu -->
+    <button id="open-overlay" style="margin-top: 20px; padding: 10px 20px;">Open Overlay Menu</button>
+
+    <div class="overlay-backdrop" id="overlay-backdrop"></div>
+    <div class="overlay-menu" id="overlay-menu">
+        <h3>Overlay Menu</h3>
+        <a href="#" data-action="option1" style="display:block;padding:8px;">Option 1</a>
+        <a href="#" data-action="option2" style="display:block;padding:8px;">Option 2</a>
+        <a href="#" data-action="option3" style="display:block;padding:8px;">Option 3</a>
+        <button id="close-overlay" style="margin-top:10px;">Close</button>
+    </div>
+
+    <div id="action-log">
+        <strong>Action Log:</strong>
+        <div id="log-entries"></div>
+    </div>
+
+    <script>
+        function logAction(action) {
+            var entry = document.createElement('div');
+            entry.textContent = new Date().toISOString().substr(11, 12) + ' - ' + action;
+            document.getElementById('log-entries').appendChild(entry);
+            console.log('Action: ' + action);
+        }
+
+        // Dropdown menus
+        document.querySelectorAll('.menu-btn').forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+                // Close all other menus
+                document.querySelectorAll('.dropdown').forEach(function(d) { d.classList.remove('open'); });
+                var menuId = btn.getAttribute('data-menu') + '-menu';
+                document.getElementById(menuId).classList.toggle('open');
+            });
+        });
+
+        // Close menus on outside click
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.menu-item')) {
+                document.querySelectorAll('.dropdown').forEach(function(d) { d.classList.remove('open'); });
+            }
+        });
+
+        // Menu item clicks
+        document.querySelectorAll('.dropdown a, .overlay-menu a').forEach(function(a) {
+            a.addEventListener('click', function(e) {
+                e.preventDefault();
+                logAction(a.getAttribute('data-action'));
+                document.querySelectorAll('.dropdown').forEach(function(d) { d.classList.remove('open'); });
+            });
+        });
+
+        // Overlay menu
+        document.getElementById('open-overlay').addEventListener('click', function() {
+            document.getElementById('overlay-menu').classList.add('open');
+            document.getElementById('overlay-backdrop').classList.add('open');
+            logAction('overlay-opened');
+        });
+
+        document.getElementById('close-overlay').addEventListener('click', function() {
+            document.getElementById('overlay-menu').classList.remove('open');
+            document.getElementById('overlay-backdrop').classList.remove('open');
+            logAction('overlay-closed');
+        });
+
+        document.getElementById('overlay-backdrop').addEventListener('click', function() {
+            document.getElementById('overlay-menu').classList.remove('open');
+            document.getElementById('overlay-backdrop').classList.remove('open');
+            logAction('overlay-closed');
+        });
+    </script>
+</body>
+</html>

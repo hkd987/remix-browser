@@ -1,0 +1,7 @@
+{
+  "name": "remix-browser",
+  "description": "Blazing fast headless Chrome automation via CDP — no extension needed",
+  "version": "0.1.0",
+  "author": { "name": "remix-browser contributors" },
+  "keywords": ["browser", "chrome", "cdp", "automation", "headless"]
+}
