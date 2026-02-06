@@ -1,3 +1,7 @@
+// rmcp's #[tool] macros generate code that calls these functions,
+// but rustc/clippy can't trace through the macro-generated dispatching.
+#![allow(dead_code)]
+
 mod browser;
 mod interaction;
 mod selectors;

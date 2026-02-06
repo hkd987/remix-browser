@@ -6,6 +6,7 @@ async fn launch_test_browser() -> (Browser, tokio::task::JoinHandle<()>, tempfil
     let tmp_dir = tempfile::tempdir().expect("Failed to create temp dir");
     let config = BrowserConfig::builder()
         .arg("--headless=new")
+        .arg("--no-sandbox")
         .arg("--no-first-run")
         .arg("--no-default-browser-check")
         .arg("--disable-extensions")
