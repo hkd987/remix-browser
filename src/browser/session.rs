@@ -13,12 +13,18 @@ pub struct BrowserSession {
     _handler_task: tokio::task::JoinHandle<()>,
     pub pool: Arc<Mutex<TabPool>>,
     headless: bool,
+    /// Unique temp dir for this Chrome instance — cleaned up on drop.
+    _user_data_dir: tempfile::TempDir,
 }
 
 impl BrowserSession {
     /// Launch a new browser and establish CDP connection.
     pub async fn launch(headless: bool) -> Result<Self> {
-        let mut builder = BrowserConfig::builder();
+        let user_data_dir =
+            tempfile::tempdir().context("Failed to create temp dir for Chrome")?;
+
+        let mut builder = BrowserConfig::builder()
+            .user_data_dir(user_data_dir.path());
 
         if headless {
             builder = builder.arg("--headless=new");
@@ -69,6 +75,7 @@ impl BrowserSession {
             _handler_task: handler_task,
             pool,
             headless,
+            _user_data_dir: user_data_dir,
         })
     }
 

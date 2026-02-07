@@ -1,6 +1,6 @@
 [package]
 name = "remix-browser"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 description = "Blazing fast headless Chrome automation via CDP — no extension needed"
 
@@ -9,7 +9,7 @@ description = "Blazing fast headless Chrome automation via CDP — no extension 
 rmcp = { version = "0.1", features = ["server", "transport-io", "macros"] }
 
 # CDP / Browser
-chromiumoxide = { version = "0.7", features = ["tokio-runtime"], default-features = false }
+chromiumoxide = { version = "0.8", features = ["tokio-runtime"], default-features = false }
 
 # Async Runtime
 tokio = { version = "1", features = ["full"] }
@@ -36,8 +36,8 @@ clap = { version = "4", features = ["derive"] }
 
 # Utility
 which = "7"
+tempfile = "3"
 
 [dev-dependencies]
 tokio-test = "0.4"
-tempfile = "3"
 assert_cmd = "2"

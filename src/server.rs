@@ -26,6 +26,16 @@ impl RemixBrowserServer {
         }
     }
 
+    /// Explicitly shut down the browser session, killing Chrome.
+    pub async fn shutdown(&self) {
+        let mut session = self.session.lock().await;
+        if let Some(s) = session.take() {
+            if let Err(e) = s.close().await {
+                tracing::warn!("Failed to close browser: {}", e);
+            }
+        }
+    }
+
     /// Ensure the browser is launched, return a reference to the session.
     async fn ensure_browser(&self) -> Result<(), McpError> {
         let mut session = self.session.lock().await;

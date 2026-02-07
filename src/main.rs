@@ -44,8 +44,11 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let server = server::RemixBrowserServer::new(headless);
-    let service = server.serve(stdio()).await?;
+    let service = server.clone().serve(stdio()).await?;
     service.waiting().await?;
+
+    // Explicitly kill Chrome before exiting
+    server.shutdown().await;
 
     tracing::info!("remix-browser MCP server shut down");
     Ok(())
