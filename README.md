@@ -90,6 +90,16 @@ That's it. Claude now has a browser.
 }
 ```
 
+### Best performance tip
+
+For the best experience, add this line to your project's `CLAUDE.md` (or `~/.claude/CLAUDE.md` for all projects):
+
+```markdown
+When I ask to use Chrome, use the browser, browse a website, or do anything browser-related — use the remix-browser MCP tools. Always start with `navigate`.
+```
+
+This tells Claude to automatically reach for remix-browser whenever you mention browser tasks — no need to say "remix-browser" by name.
+
 ## Tools
 
 remix-browser exposes **18 tools** organized into 6 categories.

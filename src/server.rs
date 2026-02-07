@@ -101,7 +101,11 @@ impl ServerHandler for RemixBrowserServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
             instructions: Some(
-                "remix-browser: Fast headless Chrome automation via CDP. \
+                "remix-browser provides headless Chrome browser automation via CDP. \
+                 Use these tools when the user wants to use Chrome, use the browser, \
+                 browse the web, open a URL, take screenshots, interact with web pages, \
+                 fill forms, scrape content, debug UIs, inspect the DOM, run JavaScript \
+                 in the browser, or monitor network requests. \
                  Start with `navigate` to open a URL, then use other tools to interact."
                     .into(),
             ),

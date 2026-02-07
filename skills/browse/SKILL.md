@@ -1,9 +1,21 @@
 ---
 name: browse
-description: Browse websites, interact with web pages, take screenshots, debug UIs,
-  and extract data from the web. Use when the user asks to open a URL, test a web app,
-  check a website, fill forms, or interact with any web page.
+description: >-
+  Use Chrome, use the browser, open a website, browse the web, go to a URL,
+  take a screenshot of a page, test a web app, check a website, fill out forms,
+  scrape a webpage, interact with a web page, debug a UI, inspect the DOM,
+  run JavaScript in the browser, monitor network requests, or automate any
+  browser task. Headless Chrome automation via CDP.
 ---
-Use the remix-browser MCP tools to accomplish browser tasks.
-Available tools: navigate, click, type_text, screenshot, execute_js, find_elements, etc.
-Always start by calling `navigate` with the target URL.
+Use the remix-browser MCP tools (prefixed `mcp__remix-browser__`) for all browser tasks.
+
+**Getting started**: Always call `navigate` first to open a URL.
+
+**Available tools**:
+- Navigation: `navigate`, `go_back`, `go_forward`, `reload`, `get_page_info`
+- DOM: `find_elements`, `get_text`, `get_html`, `wait_for`
+- Interaction: `click`, `type_text`, `hover`, `select_option`, `press_key`, `scroll`
+- Visual: `screenshot`
+- JavaScript: `execute_js`, `read_console`
+- Network: `network_enable`, `get_network_log`
+- Tabs: `new_tab`, `close_tab`, `list_tabs`
