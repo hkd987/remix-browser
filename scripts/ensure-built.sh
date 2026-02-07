@@ -44,6 +44,11 @@ case "$ARCH" in
         ;;
 esac
 
+# macOS: always use aarch64 binary (runs on Intel via Rosetta 2)
+if [ "$OS_TAG" = "apple-darwin" ]; then
+    ARCH_TAG="aarch64"
+fi
+
 TARGET="${ARCH_TAG}-${OS_TAG}"
 
 # Set archive extension
