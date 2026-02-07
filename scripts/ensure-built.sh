@@ -14,9 +14,77 @@ fi
 
 BINARY="$PROJECT_DIR/bin/remix-browser"
 
+# Create a symlink on PATH so "remix-browser" is available system-wide.
+# This function never fails the script — all error paths return 0.
+ensure_symlink_on_path() {
+    local real_binary="$1"
+
+    # Skip on Windows
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*) return 0 ;;
+    esac
+
+    # Guard against empty HOME
+    if [ -z "${HOME:-}" ]; then
+        return 0
+    fi
+
+    # Pick symlink directory
+    local link_dir=""
+    if [ -d "$HOME/.local/bin" ] || mkdir -p "$HOME/.local/bin" 2>/dev/null; then
+        link_dir="$HOME/.local/bin"
+    elif [ -w "/usr/local/bin" ]; then
+        link_dir="/usr/local/bin"
+    else
+        return 0
+    fi
+
+    local link_path="$link_dir/remix-browser"
+
+    # If a real file (not a symlink) exists at the destination, don't overwrite
+    if [ -f "$link_path" ] && [ ! -L "$link_path" ]; then
+        log "Standalone install found at $link_path; skipping symlink."
+        return 0
+    fi
+
+    # If symlink already exists and points to the correct target, no-op
+    if [ -L "$link_path" ]; then
+        local current_target
+        current_target="$(readlink "$link_path")" || true
+        if [ "$current_target" = "$real_binary" ]; then
+            return 0
+        fi
+        # Stale symlink — update it
+        log "Updating symlink $link_path -> $real_binary"
+        ln -sf "$real_binary" "$link_path" 2>/dev/null || return 0
+    else
+        # Nothing exists — create symlink
+        log "Creating symlink $link_path -> $real_binary"
+        ln -s "$real_binary" "$link_path" 2>/dev/null || return 0
+    fi
+
+    # Warn if the chosen directory is not on PATH
+    case ":${PATH}:" in
+        *":${link_dir}:"*) ;;
+        *)
+            log ""
+            log "NOTE: ${link_dir} is not in your PATH."
+            log "Add it with: export PATH=\"${link_dir}:\$PATH\""
+            ;;
+    esac
+
+    return 0
+}
+
+# Run the binary, ensuring a symlink is on PATH first.
+run_binary() {
+    ensure_symlink_on_path "$BINARY"
+    exec "$BINARY" "$@"
+}
+
 # If binary already exists, run it
 if [ -f "$BINARY" ]; then
-    exec "$BINARY" "$@"
+    run_binary "$@"
 fi
 
 REPO="hkd987/remix-browser"
@@ -112,13 +180,13 @@ build_from_source() {
 
 # Try download first, then build from source
 if download_binary; then
-    exec "$BINARY" "$@"
+    run_binary "$@"
 fi
 
 log "Download failed, attempting to build from source..."
 
 if build_from_source; then
-    exec "$BINARY" "$@"
+    run_binary "$@"
 fi
 
 log ""

@@ -89,6 +89,11 @@ else
 fi
 
 # Install binary
+# If a symlink exists (e.g., from plugin install), remove it before copying
+if [ -L "$INSTALL_DIR/remix-browser" ]; then
+    log "Replacing existing symlink with standalone binary..."
+    rm -f "$INSTALL_DIR/remix-browser"
+fi
 cp "$TMPDIR_DL/extracted/remix-browser" "$INSTALL_DIR/remix-browser"
 chmod +x "$INSTALL_DIR/remix-browser"
 
