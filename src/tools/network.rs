@@ -1,5 +1,11 @@
 use anyhow::Result;
+use chromiumoxide::cdp::browser_protocol::network::{
+    EnableParams, EventRequestWillBeSent, EventResponseReceived,
+};
+use chromiumoxide::page::Page;
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -127,4 +133,48 @@ pub async fn get_network_log(
         )
         .await;
     Ok(serde_json::to_value(entries)?)
+}
+
+/// Subscribe to CDP network events on a page and feed entries into the shared NetworkLog.
+pub async fn start_listening(page: &Page, network_log: NetworkLog) -> Result<()> {
+    // Enable CDP Network domain on the page
+    page.execute(EnableParams::default()).await?;
+
+    // Subscribe to request + response events
+    let mut requests = page.event_listener::<EventRequestWillBeSent>().await?;
+    let mut responses = page.event_listener::<EventResponseReceived>().await?;
+
+    // Spawn background task: collect requests in a HashMap keyed by request_id,
+    // then when a response arrives, merge into a NetworkEntry and add to the log
+    let log = network_log.clone();
+    tokio::spawn(async move {
+        let mut pending: HashMap<String, Arc<EventRequestWillBeSent>> = HashMap::new();
+
+        loop {
+            tokio::select! {
+                Some(req) = requests.next() => {
+                    pending.insert(req.request_id.inner().to_string(), req);
+                }
+                Some(resp) = responses.next() => {
+                    let request_id = resp.request_id.inner().to_string();
+                    let method = pending.get(&request_id)
+                        .map(|r| r.request.method.clone())
+                        .unwrap_or_default();
+                    let entry = NetworkEntry {
+                        url: resp.response.url.clone(),
+                        method,
+                        status: resp.response.status as u32,
+                        headers: resp.response.headers.inner().clone(),
+                        body_preview: String::new(),
+                        timing_ms: 0.0,
+                    };
+                    log.add(entry).await;
+                    pending.remove(&request_id);
+                }
+                else => break,
+            }
+        }
+    });
+
+    Ok(())
 }

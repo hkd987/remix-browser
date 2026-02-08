@@ -1,6 +1,12 @@
 use chromiumoxide::browser::{Browser, BrowserConfig};
+use chromiumoxide::cdp::browser_protocol::network::{
+    EnableParams, EventRequestWillBeSent, EventResponseReceived,
+};
 use futures::StreamExt;
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 async fn launch_test_browser() -> (Browser, tokio::task::JoinHandle<()>, tempfile::TempDir) {
     let tmp_dir = tempfile::tempdir().expect("Failed to create temp dir");
@@ -481,4 +487,77 @@ async fn test_find_elements_by_text() {
         .unwrap();
 
     assert!(found, "Should find element by text content");
+}
+
+// ── Network Capture Tests ──────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_network_capture() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser.new_page("about:blank").await.unwrap();
+
+    // Enable CDP Network domain
+    page.execute(EnableParams::default()).await.unwrap();
+
+    // Subscribe to events
+    let mut requests = page
+        .event_listener::<EventRequestWillBeSent>()
+        .await
+        .unwrap();
+    let mut responses = page
+        .event_listener::<EventResponseReceived>()
+        .await
+        .unwrap();
+
+    // Shared log to collect entries
+    let entries: Arc<Mutex<Vec<(String, String, i64)>>> = Arc::new(Mutex::new(Vec::new()));
+    let pending: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
+
+    let pending_clone = pending.clone();
+    let req_handle = tokio::spawn(async move {
+        while let Some(req) = requests.next().await {
+            let mut p = pending_clone.lock().await;
+            p.insert(
+                req.request_id.inner().to_string(),
+                req.request.method.clone(),
+            );
+        }
+    });
+
+    let entries_clone = entries.clone();
+    let pending_clone2 = pending.clone();
+    let resp_handle = tokio::spawn(async move {
+        while let Some(resp) = responses.next().await {
+            let request_id = resp.request_id.inner().to_string();
+            let p = pending_clone2.lock().await;
+            let method = p.get(&request_id).cloned().unwrap_or_default();
+            drop(p);
+            let mut e = entries_clone.lock().await;
+            e.push((resp.response.url.clone(), method, resp.response.status));
+        }
+    });
+
+    // Navigate to a real page to generate network requests
+    page.goto("https://httpbin.org/get").await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+    // Check captured entries
+    let captured = entries.lock().await;
+    assert!(
+        !captured.is_empty(),
+        "Should have captured at least one network entry"
+    );
+
+    let has_httpbin = captured.iter().any(|(url, _, status)| {
+        url.contains("httpbin.org") && *status == 200
+    });
+    assert!(
+        has_httpbin,
+        "Should have captured httpbin.org request with status 200, got: {:?}",
+        *captured
+    );
+
+    // Clean up spawned tasks
+    req_handle.abort();
+    resp_handle.abort();
 }

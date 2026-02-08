@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "remix-browser": {
-      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ensure-built.sh",
+      "command": "./scripts/ensure-built.sh",
       "args": [],
       "env": {}
     }

@@ -335,6 +335,14 @@ impl RemixBrowserServer {
         network::network_enable(&self.network_log, &params)
             .await
             .map_err(|e| McpError::internal_error(format!("{}", e), None))?;
+
+        // Wire up CDP event listeners on the active page
+        let log = self.network_log.clone();
+        self.with_page(|page| async move {
+            network::start_listening(&page, log).await
+        })
+        .await?;
+
         Self::text_result("Network capture enabled")
     }
 
