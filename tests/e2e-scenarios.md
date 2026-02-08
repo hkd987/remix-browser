@@ -210,11 +210,11 @@
 | 7. JavaScript Execution | PASS | DOM injection, reading, computed styles all work |
 | 8. Navigation History | PASS | Back/forward/reload all correct |
 | 9. Selector Types | PASS | CSS, text, XPath all working |
-| 10. Hover & Keyboard | PASS | `get_network_log` returns empty (see bugs) |
+| 10. Hover & Keyboard | PASS | All tools working |
 
 **Total**: 10/10 passed | 0/10 failed
 
-**Tools verified**: 21/23 fully working, 2 with issues
+**Tools verified**: 22/23 fully working, 1 with issue
 
 ---
 
@@ -243,17 +243,16 @@
 | `list_tabs` | S4 | PASS |
 | `close_tab` | S4 | PASS |
 | `read_console` | S7 | PASS (empty — no console output to capture) |
-| `network_enable` | S10 | PASS (enables without error) |
-| `get_network_log` | S10 | ISSUE (returns empty after navigation) |
+| `network_enable` | S10 | PASS |
+| `get_network_log` | S10 | PASS |
 
 ---
 
 ## Bugs & Improvements Found
 
-### BUG-1: `get_network_log` returns empty results
-- **Severity**: Medium
-- **Details**: After calling `network_enable` and navigating to a page, `get_network_log` returns an empty array. The `NetworkLog` is a shared in-memory store that requires CDP event listeners to populate it with request/response data. The listeners may not be wired to the page's CDP session.
-- **Reproduction**: Call `network_enable`, then `navigate` to any URL, then `get_network_log` — always empty.
+### ~~BUG-1: `get_network_log` returns empty results~~ — FIXED
+- **Status**: Fixed — CDP `Network.enable` + event listeners now wired in `network_enable`
+- **Fix**: `start_listening()` in `src/tools/network.rs` subscribes to `EventRequestWillBeSent` and `EventResponseReceived`, feeds entries into shared `NetworkLog`
 
 ### BUG-2: `type_text` fails on Google's search textarea
 - **Severity**: Low (site-specific)
