@@ -29,3 +29,7 @@ When the user asks to use Chrome, use the browser, browse a website, open a URL,
 take a screenshot, test a web app, fill forms, scrape content, debug a UI, inspect
 the DOM, run JavaScript in the browser, or do anything browser-related — use the
 remix-browser MCP tools (`mcp__remix-browser__*`). Always start with `navigate`.
+
+## When running a build
+ - Always update the local version on the users machine `~/.local/bin/remix-browser` as well when working on new features. 
+ 

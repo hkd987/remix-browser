@@ -5,3 +5,5 @@ pub mod navigation;
 pub mod network;
 pub mod page;
 pub mod screenshot;
+pub mod script;
+pub mod snapshot;

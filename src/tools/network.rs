@@ -15,7 +15,8 @@ pub struct NetworkEntry {
     pub url: String,
     pub method: String,
     pub status: u32,
-    pub headers: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<serde_json::Value>,
     pub body_preview: String,
     pub timing_ms: f64,
 }
@@ -62,6 +63,9 @@ impl NetworkLog {
         drop(patterns);
 
         let mut entries = self.entries.lock().await;
+        if entries.len() >= 500 {
+            entries.remove(0);
+        }
         entries.push(entry);
     }
 
@@ -119,19 +123,44 @@ pub struct GetNetworkLogParams {
     pub method: Option<String>,
     #[schemars(description = "Filter by status code")]
     pub status: Option<u32>,
+    #[schemars(description = "Include response headers in output (default: false)")]
+    pub include_headers: Option<bool>,
+    #[schemars(description = "Maximum number of entries to return (default: 50)")]
+    pub limit: Option<u32>,
 }
 
 pub async fn get_network_log(
     network_log: &NetworkLog,
     params: &GetNetworkLogParams,
 ) -> Result<serde_json::Value> {
-    let entries = network_log
+    let mut entries = network_log
         .get_log(
             params.url_pattern.as_deref(),
             params.method.as_deref(),
             params.status,
         )
         .await;
+
+    // Strip headers unless explicitly requested
+    if !params.include_headers.unwrap_or(false) {
+        for entry in &mut entries {
+            entry.headers = None;
+        }
+    }
+
+    // Apply limit (take most recent entries)
+    let limit = params.limit.unwrap_or(50) as usize;
+    let total = entries.len();
+    if total > limit {
+        let entries = entries.split_off(total - limit);
+        return Ok(serde_json::json!({
+            "entries": entries,
+            "total": total,
+            "showing": limit,
+            "note": format!("Showing last {} of {} entries. Use limit to see more.", limit, total)
+        }));
+    }
+
     Ok(serde_json::to_value(entries)?)
 }
 
@@ -164,7 +193,7 @@ pub async fn start_listening(page: &Page, network_log: NetworkLog) -> Result<()>
                         url: resp.response.url.clone(),
                         method,
                         status: resp.response.status as u32,
-                        headers: resp.response.headers.inner().clone(),
+                        headers: Some(resp.response.headers.inner().clone()),
                         body_preview: String::new(),
                         timing_ms: 0.0,
                     };

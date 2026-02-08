@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::browser::BrowserSession;
-use crate::tools::{dom, interaction, javascript, navigation, network, page, screenshot};
+use crate::tools::{dom, interaction, javascript, navigation, network, page, screenshot, script, snapshot};
 
 /// The MCP server that routes tool calls to browser automation.
 #[derive(Clone)]
@@ -86,7 +86,7 @@ impl RemixBrowserServer {
     }
 
     fn json_result(value: impl serde::Serialize) -> Result<CallToolResult, McpError> {
-        let text = serde_json::to_string_pretty(&value)
+        let text = serde_json::to_string(&value)
             .map_err(|e| McpError::internal_error(format!("JSON error: {}", e), None))?;
         Ok(CallToolResult::success(vec![Content::text(text)]))
     }
@@ -119,15 +119,20 @@ impl ServerHandler for RemixBrowserServer {
 impl RemixBrowserServer {
     // ── Navigation ──────────────────────────────────────────────────────
 
-    #[tool(description = "Navigate to a URL. Returns the page URL and title.")]
+    #[tool(description = "Navigate to a URL. Returns the page URL, title, and a snapshot of interactive elements.")]
     async fn navigate(
         &self,
         #[tool(aggr)] params: navigation::NavigateParams,
     ) -> Result<CallToolResult, McpError> {
         let result = self
-            .with_page(|page| async move { navigation::navigate(&page, &params).await })
+            .with_page(|page| async move {
+                let nav = navigation::navigate(&page, &params).await?;
+                let snap_params = snapshot::SnapshotParams { selector: None };
+                let snap = snapshot::snapshot(&page, &snap_params).await.unwrap_or_else(|_| "Snapshot unavailable".to_string());
+                Ok((nav, snap))
+            })
             .await?;
-        Self::text_result(format!("Navigated to {} — {}", result.title, result.url))
+        Self::text_result(format!("Navigated to {} — {}\n\n{}", result.0.title, result.0.url, result.1))
     }
 
     #[tool(description = "Go back in browser history.")]
@@ -196,6 +201,17 @@ impl RemixBrowserServer {
     ) -> Result<CallToolResult, McpError> {
         let result = self
             .with_page(|page| async move { dom::get_html(&page, &params).await })
+            .await?;
+        Self::text_result(result)
+    }
+
+    #[tool(description = "Get a compact snapshot of interactive elements on the page. Returns indexed list of buttons, links, inputs, etc. Much more compact than get_html. Use the ref index with click/type_text selectors.")]
+    async fn snapshot(
+        &self,
+        #[tool(aggr)] params: snapshot::SnapshotParams,
+    ) -> Result<CallToolResult, McpError> {
+        let result = self
+            .with_page(|page| async move { snapshot::snapshot(&page, &params).await })
             .await?;
         Self::text_result(result)
     }
@@ -308,7 +324,7 @@ impl RemixBrowserServer {
         let text = match &result {
             serde_json::Value::String(s) => s.clone(),
             serde_json::Value::Null => "null".to_string(),
-            other => serde_json::to_string_pretty(other)
+            other => serde_json::to_string(other)
                 .unwrap_or_else(|_| format!("{:?}", other)),
         };
         Self::text_result(text)
@@ -396,5 +412,58 @@ impl RemixBrowserServer {
             McpError::internal_error(format!("{}", e), None)
         })?;
         Self::json_result(result)
+    }
+
+    // ── Scripting ──────────────────────────────────────────────────────
+
+    #[tool(description = "Execute a JavaScript automation script with access to a `page` object for browser control. \
+        Use this for multi-step browser workflows — MUCH faster than individual tool calls. \
+        The script runs synchronously (no await needed). \
+        \n\nAvailable API:\n\
+        - page.navigate(url) — go to URL, returns 'title — url'\n\
+        - page.back() / page.forward() / page.reload() — history navigation\n\
+        - page.click(selector, {type:'text'}) — click element (type: css|text|xpath)\n\
+        - page.type(selector, text, {clear:true}) — type into input\n\
+        - page.press(key, {modifiers:['ctrl']}) — press keyboard key\n\
+        - page.hover(selector, {type:'text'}) — hover over element\n\
+        - page.select(selector, value, {type:'css'}) — select dropdown option\n\
+        - page.scroll(direction, {amount:500, selector:'div'}) — scroll page/element\n\
+        - page.wait(ms) — pause execution\n\
+        - page.waitFor(selector, {timeout:5000, state:'visible'}) — wait for element\n\
+        - page.snapshot(selector?) — get interactive element tree (compact)\n\
+        - page.screenshot() — capture page image\n\
+        - page.getText(selector, {type:'css'}) — get element text\n\
+        - page.getHtml(selector?, {outer:true}) — get element HTML\n\
+        - page.findElements(selector, {type:'css'}) — find matching elements\n\
+        - page.js(expr) — run JS in browser context, return result\n\
+        - page.readConsole({level:'error'}) — read console entries\n\
+        - page.enableNetwork(patterns?) — enable network capture\n\
+        - page.getNetworkLog({method:'GET'}) — get captured requests\n\
+        - console.log(...) — output data (collected and returned)\n\
+        \n\nExample:\n\
+        page.navigate('https://example.com');\n\
+        const items = ['one','two','three'];\n\
+        for (const item of items) {\n\
+          page.type('#search', item, {clear:true});\n\
+          page.click('button[type=submit]');\n\
+          page.wait(1000);\n\
+          console.log('Searched for: ' + item);\n\
+        }\n\
+        page.snapshot();")]
+    async fn run_script(
+        &self,
+        #[tool(aggr)] params: script::RunScriptParams,
+    ) -> Result<CallToolResult, McpError> {
+        let console_log = self.console_log.clone();
+        let network_log = self.network_log.clone();
+        let (result, screenshot_contents) = self
+            .with_page(|page| async move {
+                script::run_script(&page, &params, &console_log, &network_log).await
+            })
+            .await?;
+
+        let mut contents: Vec<Content> = vec![Content::text(&result.format_output())];
+        contents.extend(screenshot_contents);
+        Ok(CallToolResult::success(contents))
     }
 }

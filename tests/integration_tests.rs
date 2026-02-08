@@ -561,3 +561,314 @@ async fn test_network_capture() {
     req_handle.abort();
     resp_handle.abort();
 }
+
+// ── Snapshot Tests ─────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_snapshot_form_page() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser
+        .new_page(fixture_url("form.html").as_str())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let params = remix_browser::tools::snapshot::SnapshotParams { selector: None };
+    let result = remix_browser::tools::snapshot::snapshot(&page, &params)
+        .await
+        .unwrap();
+
+    // Should contain form elements
+    assert!(result.contains("input"), "Snapshot should contain input elements, got:\n{}", result);
+    assert!(result.contains("select"), "Snapshot should contain select element, got:\n{}", result);
+    assert!(result.contains("textarea"), "Snapshot should contain textarea element, got:\n{}", result);
+    assert!(result.contains("button"), "Snapshot should contain button element, got:\n{}", result);
+
+    // Should be compact — much less than full HTML
+    assert!(result.len() < 5000, "Snapshot should be compact (<5KB), got {} bytes", result.len());
+
+    // Should have indexed lines
+    assert!(result.contains("[0]"), "Snapshot should have indexed elements");
+}
+
+#[tokio::test]
+async fn test_snapshot_basic_page() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser
+        .new_page(fixture_url("basic.html").as_str())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let params = remix_browser::tools::snapshot::SnapshotParams { selector: None };
+    let result = remix_browser::tools::snapshot::snapshot(&page, &params)
+        .await
+        .unwrap();
+
+    // Should find the heading and link
+    assert!(result.contains("h1"), "Snapshot should contain h1 heading, got:\n{}", result);
+    assert!(result.contains("a "), "Snapshot should contain link element, got:\n{}", result);
+    assert!(result.contains("Click me"), "Snapshot should contain link text, got:\n{}", result);
+}
+
+#[tokio::test]
+async fn test_snapshot_scoped_selector() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser
+        .new_page(fixture_url("form.html").as_str())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Scope to just the form
+    let params = remix_browser::tools::snapshot::SnapshotParams {
+        selector: Some("#test-form".to_string()),
+    };
+    let result = remix_browser::tools::snapshot::snapshot(&page, &params)
+        .await
+        .unwrap();
+
+    // Should contain form elements but be scoped
+    assert!(result.contains("input"), "Scoped snapshot should contain inputs");
+    assert!(result.contains("[0]"), "Scoped snapshot should have indexed elements");
+}
+
+// ── Circular Buffer Tests ──────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_network_log_circular_buffer() {
+    let log = remix_browser::tools::network::NetworkLog::new();
+    log.enable(None).await;
+
+    // Add 600 entries (cap is 500)
+    for i in 0..600 {
+        log.add(remix_browser::tools::network::NetworkEntry {
+            url: format!("https://example.com/{}", i),
+            method: "GET".to_string(),
+            status: 200,
+            headers: None,
+            body_preview: String::new(),
+            timing_ms: 0.0,
+        })
+        .await;
+    }
+
+    let entries = log.get_log(None, None, None).await;
+    assert_eq!(entries.len(), 500, "Network log should cap at 500 entries");
+    // Oldest entries should be dropped (0-99 dropped, 100-599 kept)
+    assert!(entries[0].url.contains("/100"), "First entry should be #100, got: {}", entries[0].url);
+    assert!(entries[499].url.contains("/599"), "Last entry should be #599, got: {}", entries[499].url);
+}
+
+#[tokio::test]
+async fn test_console_log_circular_buffer() {
+    let log = remix_browser::tools::javascript::ConsoleLog::new();
+
+    // Add 1200 entries (cap is 1000)
+    for i in 0..1200 {
+        log.add(remix_browser::tools::javascript::ConsoleEntry {
+            level: "log".to_string(),
+            text: format!("entry {}", i),
+            timestamp: i as f64,
+        })
+        .await;
+    }
+
+    let entries = log.read(None, false, None).await;
+    assert_eq!(entries.len(), 1000, "Console log should cap at 1000 entries");
+    assert!(entries[0].text.contains("200"), "First entry should be #200, got: {}", entries[0].text);
+    assert!(entries[999].text.contains("1199"), "Last entry should be #1199, got: {}", entries[999].text);
+}
+
+// ── run_script Tests ──────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_run_script_navigate_and_snapshot() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser.new_page("about:blank").await.unwrap();
+
+    let console_log = remix_browser::tools::javascript::ConsoleLog::new();
+    let network_log = remix_browser::tools::network::NetworkLog::new();
+
+    let url = fixture_url("basic.html");
+    let script = format!(
+        r#"page.navigate('{}');
+        const snap = page.snapshot();
+        console.log(snap);"#,
+        url
+    );
+
+    let params = remix_browser::tools::script::RunScriptParams { script };
+    let (result, _screenshots) =
+        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log)
+            .await
+            .unwrap();
+
+    assert!(result.success, "Script should succeed, error: {:?}", result.error);
+    assert!(result.output.contains("h1"), "Output should contain snapshot with h1, got:\n{}", result.output);
+    assert!(result.url.contains("basic.html"), "Final URL should be basic.html");
+    assert_eq!(result.title, "Basic Test Page");
+}
+
+#[tokio::test]
+async fn test_run_script_form_fill() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser.new_page("about:blank").await.unwrap();
+
+    let console_log = remix_browser::tools::javascript::ConsoleLog::new();
+    let network_log = remix_browser::tools::network::NetworkLog::new();
+
+    let url = fixture_url("form.html");
+    let script = format!(
+        r#"page.navigate('{}');
+        page.type('#name', 'Test User');
+        const val = page.js("document.getElementById('name').value");
+        console.log('Name value: ' + val);"#,
+        url
+    );
+
+    let params = remix_browser::tools::script::RunScriptParams { script };
+    let (result, _screenshots) =
+        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log)
+            .await
+            .unwrap();
+
+    assert!(result.success, "Script should succeed, error: {:?}", result.error);
+    assert!(result.output.contains("Test User"), "Output should contain typed value, got:\n{}", result.output);
+}
+
+#[tokio::test]
+async fn test_run_script_loop() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser.new_page("about:blank").await.unwrap();
+
+    let console_log = remix_browser::tools::javascript::ConsoleLog::new();
+    let network_log = remix_browser::tools::network::NetworkLog::new();
+
+    let url = fixture_url("basic.html");
+    let script = format!(
+        r#"page.navigate('{}');
+        const items = ['alpha', 'beta', 'gamma'];
+        for (const item of items) {{
+            console.log('Processing: ' + item);
+        }}"#,
+        url
+    );
+
+    let params = remix_browser::tools::script::RunScriptParams { script };
+    let (result, _screenshots) =
+        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log)
+            .await
+            .unwrap();
+
+    assert!(result.success, "Script should succeed, error: {:?}", result.error);
+    assert!(result.output.contains("Processing: alpha"), "Should log alpha");
+    assert!(result.output.contains("Processing: beta"), "Should log beta");
+    assert!(result.output.contains("Processing: gamma"), "Should log gamma");
+}
+
+#[tokio::test]
+async fn test_run_script_error_handling() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser.new_page("about:blank").await.unwrap();
+
+    let console_log = remix_browser::tools::javascript::ConsoleLog::new();
+    let network_log = remix_browser::tools::network::NetworkLog::new();
+
+    let url = fixture_url("basic.html");
+    let script = format!(
+        r#"page.navigate('{}');
+        console.log('before error');
+        page.click('#nonexistent-element-xyz');
+        console.log('after error');"#,
+        url
+    );
+
+    let params = remix_browser::tools::script::RunScriptParams { script };
+    let (result, _screenshots) =
+        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log)
+            .await
+            .unwrap();
+
+    assert!(!result.success, "Script should fail on nonexistent element");
+    assert!(result.error.is_some(), "Should have error message");
+    assert!(result.output.contains("before error"), "Should have output before the error");
+    assert!(!result.output.contains("after error"), "Should not have output after error");
+}
+
+#[tokio::test]
+async fn test_run_script_screenshot() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser.new_page("about:blank").await.unwrap();
+
+    let console_log = remix_browser::tools::javascript::ConsoleLog::new();
+    let network_log = remix_browser::tools::network::NetworkLog::new();
+
+    let url = fixture_url("basic.html");
+    let script = format!(
+        r#"page.navigate('{}');
+        page.screenshot();"#,
+        url
+    );
+
+    let params = remix_browser::tools::script::RunScriptParams { script };
+    let (result, screenshots) =
+        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log)
+            .await
+            .unwrap();
+
+    assert!(result.success, "Script should succeed, error: {:?}", result.error);
+    assert_eq!(screenshots.len(), 1, "Should have 1 screenshot");
+}
+
+#[tokio::test]
+async fn test_run_script_console_log() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser.new_page("about:blank").await.unwrap();
+
+    let console_log = remix_browser::tools::javascript::ConsoleLog::new();
+    let network_log = remix_browser::tools::network::NetworkLog::new();
+
+    let script = r#"
+        console.log('hello world');
+        console.log('number:', 42);
+        console.log('done');
+    "#.to_string();
+
+    let params = remix_browser::tools::script::RunScriptParams { script };
+    let (result, _screenshots) =
+        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log)
+            .await
+            .unwrap();
+
+    assert!(result.success, "Script should succeed, error: {:?}", result.error);
+    assert!(result.output.contains("hello world"), "Should contain 'hello world'");
+    assert!(result.output.contains("42"), "Should contain '42'");
+    assert!(result.output.contains("done"), "Should contain 'done'");
+}
+
+#[tokio::test]
+async fn test_run_script_js_execution() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser.new_page("about:blank").await.unwrap();
+
+    let console_log = remix_browser::tools::javascript::ConsoleLog::new();
+    let network_log = remix_browser::tools::network::NetworkLog::new();
+
+    let url = fixture_url("basic.html");
+    let script = format!(
+        r#"page.navigate('{}');
+        const title = page.js("document.title");
+        console.log('Title: ' + title);"#,
+        url
+    );
+
+    let params = remix_browser::tools::script::RunScriptParams { script };
+    let (result, _screenshots) =
+        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log)
+            .await
+            .unwrap();
+
+    assert!(result.success, "Script should succeed, error: {:?}", result.error);
+    assert!(result.output.contains("Basic Test Page"), "Should contain page title, got:\n{}", result.output);
+}

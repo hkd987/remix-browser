@@ -1,13 +1,3 @@
-// rmcp's #[tool] macros generate code that calls these functions,
-// but rustc/clippy can't trace through the macro-generated dispatching.
-#![allow(dead_code)]
-
-mod browser;
-mod interaction;
-mod selectors;
-mod server;
-mod tools;
-
 use clap::Parser;
 use rmcp::ServiceExt;
 use rmcp::transport::stdio;
@@ -43,7 +33,7 @@ async fn main() -> anyhow::Result<()> {
         headless
     );
 
-    let server = server::RemixBrowserServer::new(headless);
+    let server = remix_browser::server::RemixBrowserServer::new(headless);
     let service = server.clone().serve(stdio()).await?;
     service.waiting().await?;
 

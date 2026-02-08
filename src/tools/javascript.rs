@@ -44,6 +44,9 @@ impl ConsoleLog {
 
     pub async fn add(&self, entry: ConsoleEntry) {
         let mut entries = self.entries.lock().await;
+        if entries.len() >= 1000 {
+            entries.remove(0);
+        }
         entries.push(entry);
     }
 
@@ -88,6 +91,8 @@ pub struct ReadConsoleParams {
     pub clear: Option<bool>,
     #[schemars(description = "Filter entries by pattern")]
     pub pattern: Option<String>,
+    #[schemars(description = "Maximum number of entries to return (default: 100)")]
+    pub limit: Option<u32>,
 }
 
 pub async fn read_console(
@@ -101,6 +106,18 @@ pub async fn read_console(
             params.pattern.as_deref(),
         )
         .await;
+
+    let limit = params.limit.unwrap_or(100) as usize;
+    let total = entries.len();
+    if total > limit {
+        let showing = &entries[total - limit..];
+        return Ok(serde_json::json!({
+            "entries": showing,
+            "total": total,
+            "showing": limit,
+            "note": format!("Showing last {} of {} entries. Use limit to see more.", limit, total)
+        }));
+    }
 
     Ok(serde_json::to_value(entries)?)
 }

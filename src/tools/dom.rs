@@ -10,6 +10,8 @@ pub struct FindElementsParams {
     pub selector: String,
     #[schemars(description = "Type of selector: css, text, or xpath")]
     pub selector_type: Option<SelectorType>,
+    #[schemars(description = "Maximum number of results to return (default: 50)")]
+    pub max_results: Option<u32>,
 }
 
 pub async fn find_elements(
@@ -18,7 +20,20 @@ pub async fn find_elements(
 ) -> Result<serde_json::Value> {
     let selector_type = params.selector_type.clone().unwrap_or_default();
     let elements = selectors::find_elements(page, &params.selector, &selector_type).await?;
-    Ok(serde_json::to_value(elements)?)
+    let max = params.max_results.unwrap_or(50) as usize;
+    let total = elements.len();
+
+    if total > max {
+        let truncated = &elements[..max];
+        Ok(serde_json::json!({
+            "elements": truncated,
+            "total": total,
+            "showing": max,
+            "note": format!("Showing {} of {} results. Use max_results to see more.", max, total)
+        }))
+    } else {
+        Ok(serde_json::to_value(elements)?)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, schemars::JsonSchema)]
@@ -60,6 +75,8 @@ pub struct GetHtmlParams {
     pub selector: Option<String>,
     #[schemars(description = "If true, return outer HTML; otherwise inner HTML")]
     pub outer: Option<bool>,
+    #[schemars(description = "Maximum character length of returned HTML (default: 50000)")]
+    pub max_length: Option<u32>,
 }
 
 pub async fn get_html(page: &Page, params: &GetHtmlParams) -> Result<String> {
@@ -97,7 +114,14 @@ pub async fn get_html(page: &Page, params: &GetHtmlParams) -> Result<String> {
         .into_value()
         .context("Failed to parse HTML result")?;
 
-    Ok(result)
+    let max_len = params.max_length.unwrap_or(50000) as usize;
+    if result.len() > max_len {
+        let mut truncated = result[..max_len].to_string();
+        truncated.push_str(&format!("\n\n...[truncated, showing {}/{} chars]", max_len, result.len()));
+        Ok(truncated)
+    } else {
+        Ok(result)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, schemars::JsonSchema)]
