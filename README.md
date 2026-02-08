@@ -95,14 +95,24 @@ That's it. Claude now has a browser.
 For the best experience, add this line to your project's `CLAUDE.md` (or `~/.claude/CLAUDE.md` for all projects):
 
 ```markdown
-When I ask to use Chrome, use the browser, browse a website, or do anything browser-related — use the remix-browser MCP tools. Always start with `navigate`.
+When I ask to use Chrome or browser automation, use remix-browser MCP tools.
+For 1-2 simple actions, granular tools are fine.
+For workflows with 3+ actions, loops, or extraction, prefer `run_script`.
+Use `snapshot` only when I need fresh `[ref=eN]` element references.
 ```
 
 This tells Claude to automatically reach for remix-browser whenever you mention browser tasks — no need to say "remix-browser" by name.
 
+## Performance Usage Pattern
+
+- Use granular tools for short flows (`navigate` -> `click` -> `get_text`).
+- Use `run_script` for multi-step workflows, loops, and repeated extraction.
+- Use `snapshot` to generate compact element lists and stable `[ref=eN]` selectors.
+- `navigate` supports `include_snapshot` so callers can skip snapshot generation when they only need URL/title.
+
 ## Tools
 
-remix-browser exposes **18 tools** organized into 6 categories.
+remix-browser exposes a broad toolset organized by category.
 
 ### Navigation
 
@@ -122,6 +132,12 @@ remix-browser exposes **18 tools** organized into 6 categories.
 | `get_text` | Extract text content from a matched element. |
 | `get_html` | Get inner or outer HTML of the page or a specific element. |
 | `wait_for` | Wait for an element to appear, disappear, or become visible. Configurable timeout. |
+
+### Snapshot
+
+| Tool | Description |
+|---|---|
+| `snapshot` | Return a compact list of interactive elements with stable refs like `[ref=e0]` that can be reused in selectors. |
 
 ### Interaction
 
@@ -161,6 +177,12 @@ remix-browser exposes **18 tools** organized into 6 categories.
 | `new_tab` | Open a new tab, optionally navigating to a URL. |
 | `close_tab` | Close a specific tab or the active one. |
 | `list_tabs` | List all open tabs with their URLs and titles. |
+
+### Script Automation
+
+| Tool | Description |
+|---|---|
+| `run_script` | Execute multi-step browser automation in one tool call with a synchronous `page.*` API. Best for loops, repeated actions, and extraction workflows. |
 
 ## Selector Types
 
@@ -226,9 +248,11 @@ src/
 │   ├── dom.rs             # find_elements, get_text, get_html, wait_for
 │   ├── interaction.rs     # click, type_text, hover, select_option, press_key, scroll
 │   ├── screenshot.rs      # screenshot capture
+│   ├── snapshot.rs        # compact interactive tree + ref generation
 │   ├── javascript.rs      # execute_js, console log capture
 │   ├── network.rs         # network monitoring
-│   └── page.rs            # tab management
+│   ├── page.rs            # tab management
+│   └── script.rs          # run_script JS engine and page API
 ├── interaction/
 │   ├── click.rs           # Hybrid click strategy implementation
 │   ├── keyboard.rs        # Key press & text input

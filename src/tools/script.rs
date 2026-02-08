@@ -135,11 +135,7 @@ fn execute_in_boa(ctx: &Arc<ScriptContext>, script: &str) -> Result<(), String> 
     // Build the `page` object with all native methods
     let page_obj = build_page_object(ctx, &mut js_ctx);
     js_ctx
-        .register_global_property(
-            boa_engine::js_string!("page"),
-            page_obj,
-            Attribute::all(),
-        )
+        .register_global_property(boa_engine::js_string!("page"), page_obj, Attribute::all())
         .map_err(|e| format!("Failed to register page object: {}", e))?;
 
     // Override console.log to collect output
@@ -165,37 +161,93 @@ fn build_page_object(ctx: &Arc<ScriptContext>, js_ctx: &mut Context) -> JsValue 
     let mut builder = ObjectInitializer::new(js_ctx);
 
     // Navigation
-    builder.function(make_navigate(ctx.clone()), boa_engine::js_string!("navigate"), 1);
+    builder.function(
+        make_navigate(ctx.clone()),
+        boa_engine::js_string!("navigate"),
+        1,
+    );
     builder.function(make_back(ctx.clone()), boa_engine::js_string!("back"), 0);
-    builder.function(make_forward(ctx.clone()), boa_engine::js_string!("forward"), 0);
-    builder.function(make_reload(ctx.clone()), boa_engine::js_string!("reload"), 0);
+    builder.function(
+        make_forward(ctx.clone()),
+        boa_engine::js_string!("forward"),
+        0,
+    );
+    builder.function(
+        make_reload(ctx.clone()),
+        boa_engine::js_string!("reload"),
+        0,
+    );
 
     // Interaction
     builder.function(make_click(ctx.clone()), boa_engine::js_string!("click"), 2);
     builder.function(make_type(ctx.clone()), boa_engine::js_string!("type"), 3);
     builder.function(make_hover(ctx.clone()), boa_engine::js_string!("hover"), 2);
-    builder.function(make_select(ctx.clone()), boa_engine::js_string!("select"), 3);
+    builder.function(
+        make_select(ctx.clone()),
+        boa_engine::js_string!("select"),
+        3,
+    );
     builder.function(make_press(ctx.clone()), boa_engine::js_string!("press"), 2);
-    builder.function(make_scroll(ctx.clone()), boa_engine::js_string!("scroll"), 2);
+    builder.function(
+        make_scroll(ctx.clone()),
+        boa_engine::js_string!("scroll"),
+        2,
+    );
 
     // Waiting
     builder.function(make_wait(ctx.clone()), boa_engine::js_string!("wait"), 1);
-    builder.function(make_wait_for(ctx.clone()), boa_engine::js_string!("waitFor"), 2);
+    builder.function(
+        make_wait_for(ctx.clone()),
+        boa_engine::js_string!("waitFor"),
+        2,
+    );
 
     // Observation
-    builder.function(make_snapshot(ctx.clone()), boa_engine::js_string!("snapshot"), 1);
-    builder.function(make_screenshot(ctx.clone()), boa_engine::js_string!("screenshot"), 1);
-    builder.function(make_get_text(ctx.clone()), boa_engine::js_string!("getText"), 2);
-    builder.function(make_get_html(ctx.clone()), boa_engine::js_string!("getHtml"), 2);
-    builder.function(make_find_elements(ctx.clone()), boa_engine::js_string!("findElements"), 2);
+    builder.function(
+        make_snapshot(ctx.clone()),
+        boa_engine::js_string!("snapshot"),
+        1,
+    );
+    builder.function(
+        make_screenshot(ctx.clone()),
+        boa_engine::js_string!("screenshot"),
+        1,
+    );
+    builder.function(
+        make_get_text(ctx.clone()),
+        boa_engine::js_string!("getText"),
+        2,
+    );
+    builder.function(
+        make_get_html(ctx.clone()),
+        boa_engine::js_string!("getHtml"),
+        2,
+    );
+    builder.function(
+        make_find_elements(ctx.clone()),
+        boa_engine::js_string!("findElements"),
+        2,
+    );
 
     // JavaScript
     builder.function(make_js(ctx.clone()), boa_engine::js_string!("js"), 1);
 
     // Console/Network
-    builder.function(make_read_console(ctx.clone()), boa_engine::js_string!("readConsole"), 1);
-    builder.function(make_enable_network(ctx.clone()), boa_engine::js_string!("enableNetwork"), 1);
-    builder.function(make_get_network_log(ctx.clone()), boa_engine::js_string!("getNetworkLog"), 1);
+    builder.function(
+        make_read_console(ctx.clone()),
+        boa_engine::js_string!("readConsole"),
+        1,
+    );
+    builder.function(
+        make_enable_network(ctx.clone()),
+        boa_engine::js_string!("enableNetwork"),
+        1,
+    );
+    builder.function(
+        make_get_network_log(ctx.clone()),
+        boa_engine::js_string!("getNetworkLog"),
+        1,
+    );
 
     builder.build().into()
 }
@@ -204,10 +256,26 @@ fn build_page_object(ctx: &Arc<ScriptContext>, js_ctx: &mut Context) -> JsValue 
 
 fn build_console_object(ctx: &Arc<ScriptContext>, js_ctx: &mut Context) -> JsValue {
     let mut builder = ObjectInitializer::new(js_ctx);
-    builder.function(make_console_log(ctx.clone()), boa_engine::js_string!("log"), 1);
-    builder.function(make_console_log(ctx.clone()), boa_engine::js_string!("info"), 1);
-    builder.function(make_console_log(ctx.clone()), boa_engine::js_string!("warn"), 1);
-    builder.function(make_console_log(ctx.clone()), boa_engine::js_string!("error"), 1);
+    builder.function(
+        make_console_log(ctx.clone()),
+        boa_engine::js_string!("log"),
+        1,
+    );
+    builder.function(
+        make_console_log(ctx.clone()),
+        boa_engine::js_string!("info"),
+        1,
+    );
+    builder.function(
+        make_console_log(ctx.clone()),
+        boa_engine::js_string!("warn"),
+        1,
+    );
+    builder.function(
+        make_console_log(ctx.clone()),
+        boa_engine::js_string!("error"),
+        1,
+    );
     builder.build().into()
 }
 
@@ -292,9 +360,7 @@ fn json_to_js(val: &serde_json::Value, js_ctx: &mut Context) -> JsValue {
                 JsValue::null()
             }
         }
-        serde_json::Value::String(s) => {
-            JsValue::from(boa_engine::js_string!(s.as_str()))
-        }
+        serde_json::Value::String(s) => JsValue::from(boa_engine::js_string!(s.as_str())),
         serde_json::Value::Array(arr) => {
             let js_arr = boa_engine::object::builtins::JsArray::new(js_ctx);
             for item in arr {
@@ -307,7 +373,8 @@ fn json_to_js(val: &serde_json::Value, js_ctx: &mut Context) -> JsValue {
             let obj = boa_engine::JsObject::with_null_proto();
             for (k, v) in map {
                 let js_val = json_to_js(v, js_ctx);
-                let key = boa_engine::property::PropertyKey::from(boa_engine::js_string!(k.as_str()));
+                let key =
+                    boa_engine::property::PropertyKey::from(boa_engine::js_string!(k.as_str()));
                 obj.set(key, js_val, false, js_ctx).unwrap_or_default();
             }
             obj.into()
@@ -327,13 +394,14 @@ fn make_navigate(ctx: Arc<ScriptContext>) -> NativeFunction {
             let params = navigation::NavigateParams {
                 url: url_str,
                 wait_until: None,
+                include_snapshot: false,
             };
 
             let page = ctx.page.clone();
             let result = ctx
                 .handle
                 .block_on(async { navigation::navigate(&page, &params).await })
-                .map_err(|e| js_err(e))?;
+                .map_err(js_err)?;
 
             Ok(JsValue::from(boa_engine::js_string!(format!(
                 "{} — {}",
@@ -350,7 +418,7 @@ fn make_back(ctx: Arc<ScriptContext>) -> NativeFunction {
             let result = ctx
                 .handle
                 .block_on(async { navigation::go_back(&page).await })
-                .map_err(|e| js_err(e))?;
+                .map_err(js_err)?;
 
             Ok(JsValue::from(boa_engine::js_string!(format!(
                 "{} — {}",
@@ -367,7 +435,7 @@ fn make_forward(ctx: Arc<ScriptContext>) -> NativeFunction {
             let result = ctx
                 .handle
                 .block_on(async { navigation::go_forward(&page).await })
-                .map_err(|e| js_err(e))?;
+                .map_err(js_err)?;
 
             Ok(JsValue::from(boa_engine::js_string!(format!(
                 "{} — {}",
@@ -384,7 +452,7 @@ fn make_reload(ctx: Arc<ScriptContext>) -> NativeFunction {
             let result = ctx
                 .handle
                 .block_on(async { navigation::reload(&page).await })
-                .map_err(|e| js_err(e))?;
+                .map_err(js_err)?;
 
             Ok(JsValue::from(boa_engine::js_string!(format!(
                 "{} — {}",
@@ -410,7 +478,7 @@ fn make_click(ctx: Arc<ScriptContext>) -> NativeFunction {
             let result = ctx
                 .handle
                 .block_on(async { interaction::do_click(&page, &params).await })
-                .map_err(|e| js_err(e))?;
+                .map_err(js_err)?;
 
             Ok(JsValue::from(boa_engine::js_string!(format!(
                 "Clicked ({})",
@@ -437,7 +505,7 @@ fn make_type(ctx: Arc<ScriptContext>) -> NativeFunction {
             let page = ctx.page.clone();
             ctx.handle
                 .block_on(async { interaction::type_text(&page, &params).await })
-                .map_err(|e| js_err(e))?;
+                .map_err(js_err)?;
 
             Ok(JsValue::from(boa_engine::js_string!("Typed text")))
         })
@@ -458,7 +526,7 @@ fn make_hover(ctx: Arc<ScriptContext>) -> NativeFunction {
             let page = ctx.page.clone();
             ctx.handle
                 .block_on(async { interaction::hover(&page, &params).await })
-                .map_err(|e| js_err(e))?;
+                .map_err(js_err)?;
 
             Ok(JsValue::from(boa_engine::js_string!("Hovered")))
         })
@@ -481,7 +549,7 @@ fn make_select(ctx: Arc<ScriptContext>) -> NativeFunction {
             let page = ctx.page.clone();
             ctx.handle
                 .block_on(async { interaction::select_option(&page, &params).await })
-                .map_err(|e| js_err(e))?;
+                .map_err(js_err)?;
 
             Ok(JsValue::from(boa_engine::js_string!("Selected")))
         })
@@ -504,7 +572,7 @@ fn make_press(ctx: Arc<ScriptContext>) -> NativeFunction {
             let page = ctx.page.clone();
             ctx.handle
                 .block_on(async { interaction::press_key(&page, &params).await })
-                .map_err(|e| js_err(e))?;
+                .map_err(js_err)?;
 
             Ok(JsValue::from(boa_engine::js_string!(format!(
                 "Pressed {}",
@@ -530,7 +598,7 @@ fn make_scroll(ctx: Arc<ScriptContext>) -> NativeFunction {
             let page = ctx.page.clone();
             ctx.handle
                 .block_on(async { interaction::do_scroll(&page, &params).await })
-                .map_err(|e| js_err(e))?;
+                .map_err(js_err)?;
 
             Ok(JsValue::from(boa_engine::js_string!("Scrolled")))
         })
@@ -568,7 +636,7 @@ fn make_wait_for(ctx: Arc<ScriptContext>) -> NativeFunction {
             let found = ctx
                 .handle
                 .block_on(async { dom::wait_for(&page, &params).await })
-                .map_err(|e| js_err(e))?;
+                .map_err(js_err)?;
 
             Ok(JsValue::from(found))
         })
@@ -591,7 +659,7 @@ fn make_snapshot(ctx: Arc<ScriptContext>) -> NativeFunction {
             let result = ctx
                 .handle
                 .block_on(async { snapshot::snapshot(&page, &params).await })
-                .map_err(|e| js_err(e))?;
+                .map_err(js_err)?;
 
             Ok(JsValue::from(boa_engine::js_string!(result)))
         })
@@ -614,7 +682,7 @@ fn make_screenshot(ctx: Arc<ScriptContext>) -> NativeFunction {
             let base64 = ctx
                 .handle
                 .block_on(async { screenshot::screenshot(&page, &params).await })
-                .map_err(|e| js_err(e))?;
+                .map_err(js_err)?;
 
             // Collect screenshot for return as Content::image
             ctx.screenshots.lock().unwrap().push(base64);
@@ -639,7 +707,7 @@ fn make_get_text(ctx: Arc<ScriptContext>) -> NativeFunction {
             let result = ctx
                 .handle
                 .block_on(async { dom::get_text(&page, &params).await })
-                .map_err(|e| js_err(e))?;
+                .map_err(js_err)?;
 
             Ok(JsValue::from(boa_engine::js_string!(result)))
         })
@@ -670,7 +738,7 @@ fn make_get_html(ctx: Arc<ScriptContext>) -> NativeFunction {
             let result = ctx
                 .handle
                 .block_on(async { dom::get_html(&page, &params).await })
-                .map_err(|e| js_err(e))?;
+                .map_err(js_err)?;
 
             Ok(JsValue::from(boa_engine::js_string!(result)))
         })
@@ -693,7 +761,7 @@ fn make_find_elements(ctx: Arc<ScriptContext>) -> NativeFunction {
             let result = ctx
                 .handle
                 .block_on(async { dom::find_elements(&page, &params).await })
-                .map_err(|e| js_err(e))?;
+                .map_err(js_err)?;
 
             // Convert JSON result to JS value
             Ok(json_to_js(&result, js_ctx))
@@ -714,7 +782,7 @@ fn make_js(ctx: Arc<ScriptContext>) -> NativeFunction {
             let result = ctx
                 .handle
                 .block_on(async { javascript::execute_js(&page, &params).await })
-                .map_err(|e| js_err(e))?;
+                .map_err(js_err)?;
 
             Ok(json_to_js(&result, js_ctx))
         })
@@ -737,7 +805,7 @@ fn make_read_console(ctx: Arc<ScriptContext>) -> NativeFunction {
             let result = ctx
                 .handle
                 .block_on(async { javascript::read_console(&console_log, &params).await })
-                .map_err(|e| js_err(e))?;
+                .map_err(js_err)?;
 
             Ok(json_to_js(&result, js_ctx))
         })
@@ -752,24 +820,26 @@ fn make_enable_network(ctx: Arc<ScriptContext>) -> NativeFunction {
                     // Also support passing array directly
                     let first = args.get_or_undefined(0);
                     if first.is_object() && !first.is_null() {
-                        get_string_array_prop(first, "length", js_ctx).is_some().then(|| {
-                            // It's an array-like
-                            let mut patterns = Vec::new();
-                            let obj = first.as_object().unwrap();
-                            let len_key = boa_engine::js_string!("length");
-                            if let Ok(len_val) = obj.get(len_key, js_ctx) {
-                                if let Ok(len) = len_val.to_number(js_ctx) {
-                                    for i in 0..(len as usize) {
-                                        if let Ok(item) = obj.get(i, js_ctx) {
-                                            if let Ok(s) = item.to_string(js_ctx) {
-                                                patterns.push(s.to_std_string_escaped());
+                        get_string_array_prop(first, "length", js_ctx)
+                            .is_some()
+                            .then(|| {
+                                // It's an array-like
+                                let mut patterns = Vec::new();
+                                let obj = first.as_object().unwrap();
+                                let len_key = boa_engine::js_string!("length");
+                                if let Ok(len_val) = obj.get(len_key, js_ctx) {
+                                    if let Ok(len) = len_val.to_number(js_ctx) {
+                                        for i in 0..(len as usize) {
+                                            if let Ok(item) = obj.get(i, js_ctx) {
+                                                if let Ok(s) = item.to_string(js_ctx) {
+                                                    patterns.push(s.to_std_string_escaped());
+                                                }
                                             }
                                         }
                                     }
                                 }
-                            }
-                            patterns
-                        })
+                                patterns
+                            })
                     } else {
                         None
                     }
@@ -786,9 +856,11 @@ fn make_enable_network(ctx: Arc<ScriptContext>) -> NativeFunction {
                     network::network_enable(&network_log, &enable_params).await?;
                     network::start_listening(&page, network_log).await
                 })
-                .map_err(|e| js_err(e))?;
+                .map_err(js_err)?;
 
-            Ok(JsValue::from(boa_engine::js_string!("Network capture enabled")))
+            Ok(JsValue::from(boa_engine::js_string!(
+                "Network capture enabled"
+            )))
         })
     }
 }
@@ -810,7 +882,7 @@ fn make_get_network_log(ctx: Arc<ScriptContext>) -> NativeFunction {
             let result = ctx
                 .handle
                 .block_on(async { network::get_network_log(&network_log, &params).await })
-                .map_err(|e| js_err(e))?;
+                .map_err(js_err)?;
 
             Ok(json_to_js(&result, js_ctx))
         })

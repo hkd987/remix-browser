@@ -27,9 +27,7 @@ pub async fn screenshot(page: &Page, params: &ScreenshotParams) -> Result<String
             .await
             .context("Element not found for screenshot")?;
         element
-            .screenshot(
-                chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat::Png,
-            )
+            .screenshot(chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat::Png)
             .await
             .context("Failed to take element screenshot")?
     } else if full_page {
@@ -54,8 +52,7 @@ pub async fn screenshot(page: &Page, params: &ScreenshotParams) -> Result<String
     } else {
         // Viewport screenshot
         page.screenshot(
-            chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotParams::builder()
-                .build(),
+            chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotParams::builder().build(),
         )
         .await
         .context("Failed to take screenshot")?

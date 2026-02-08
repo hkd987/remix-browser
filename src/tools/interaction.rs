@@ -25,8 +25,7 @@ pub async fn do_click(page: &Page, params: &ClickParams) -> Result<ClickResult> 
     let selector_type = params.selector_type.clone().unwrap_or_default();
     let button = params.button.as_deref().unwrap_or("left");
 
-    let result =
-        click::hybrid_click(page, &params.selector, &selector_type, button).await?;
+    let result = click::hybrid_click(page, &params.selector, &selector_type, button).await?;
 
     Ok(ClickResult {
         success: result.success,
@@ -89,7 +88,9 @@ pub async fn hover(page: &Page, params: &HoverParams) -> Result<bool> {
         selector_js = selector_js
     );
 
-    page.evaluate(js.as_str()).await.context("Failed to hover")?;
+    page.evaluate(js.as_str())
+        .await
+        .context("Failed to hover")?;
     Ok(true)
 }
 

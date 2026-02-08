@@ -15,8 +15,7 @@ pub async fn scroll(
 
     if let Some(selector) = selector {
         // Scroll element into view
-        let selector_js =
-            crate::interaction::click::selector_to_js(selector, selector_type)?;
+        let selector_js = crate::interaction::click::selector_to_js(selector, selector_type)?;
         let js = format!(
             r#"(() => {{
                 const el = {selector_js};

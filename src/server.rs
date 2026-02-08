@@ -1,11 +1,38 @@
 use rmcp::model::*;
 use rmcp::tool;
 use rmcp::{Error as McpError, ServerHandler};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::browser::BrowserSession;
-use crate::tools::{dom, interaction, javascript, navigation, network, page, screenshot, script, snapshot};
+use crate::selectors::r#ref::{resolve_selector, ResolveRefError};
+use crate::tools::{
+    dom, interaction, javascript, navigation, network, page, screenshot, script, snapshot,
+};
+
+const SERVER_INSTRUCTIONS: &str = "remix-browser provides headless Chrome browser automation via CDP. \
+Use these tools when the user wants to use Chrome, use the browser, browse the web, open a URL, \
+take screenshots, interact with web pages, fill forms, scrape content, debug UIs, inspect the DOM, \
+run JavaScript in the browser, or monitor network requests. \
+For simple tasks (1-2 actions), use granular tools. \
+For workflows with 3+ actions, loops, or extraction, prefer `run_script` to reduce tool calls and latency. \
+Use `snapshot` only when needed to target elements with fresh refs.";
+
+fn format_navigation_response(
+    result: &navigation::NavigateResult,
+    snapshot_text: Option<&str>,
+) -> String {
+    match snapshot_text {
+        Some(snapshot_text) => {
+            format!(
+                "Navigated to {} — {}\n\n{}",
+                result.title, result.url, snapshot_text
+            )
+        }
+        None => format!("Navigated to {} — {}", result.title, result.url),
+    }
+}
 
 /// The MCP server that routes tool calls to browser automation.
 #[derive(Clone)]
@@ -13,6 +40,7 @@ pub struct RemixBrowserServer {
     session: Arc<Mutex<Option<BrowserSession>>>,
     console_log: javascript::ConsoleLog,
     network_log: network::NetworkLog,
+    snapshot_refs: Arc<Mutex<HashMap<String, String>>>,
     headless: bool,
 }
 
@@ -22,18 +50,23 @@ impl RemixBrowserServer {
             session: Arc::new(Mutex::new(None)),
             console_log: javascript::ConsoleLog::new(),
             network_log: network::NetworkLog::new(),
+            snapshot_refs: Arc::new(Mutex::new(HashMap::new())),
             headless,
         }
     }
 
     /// Explicitly shut down the browser session, killing Chrome.
     pub async fn shutdown(&self) {
-        let mut session = self.session.lock().await;
-        if let Some(s) = session.take() {
+        let session_to_close = {
+            let mut session = self.session.lock().await;
+            session.take()
+        };
+        if let Some(s) = session_to_close {
             if let Err(e) = s.close().await {
                 tracing::warn!("Failed to close browser: {}", e);
             }
         }
+        self.clear_snapshot_refs().await;
     }
 
     /// Ensure the browser is launched, return a reference to the session.
@@ -63,9 +96,9 @@ impl RemixBrowserServer {
             })?
             // Lock drops here — other tools can proceed concurrently
         };
-        f(page).await.map_err(|e| {
-            McpError::internal_error(format!("{}", e), None)
-        })
+        f(page)
+            .await
+            .map_err(|e| McpError::internal_error(format!("{:#}", e), None))
     }
 
     async fn with_session<F, Fut, T>(&self, f: F) -> Result<T, McpError>
@@ -76,9 +109,9 @@ impl RemixBrowserServer {
         self.ensure_browser().await?;
         let session = self.session.lock().await;
         let session_ref = session.as_ref().unwrap();
-        f(session_ref).await.map_err(|e| {
-            McpError::internal_error(format!("{}", e), None)
-        })
+        f(session_ref)
+            .await
+            .map_err(|e| McpError::internal_error(format!("{:#}", e), None))
     }
 
     fn text_result(msg: impl Into<String>) -> Result<CallToolResult, McpError> {
@@ -92,7 +125,30 @@ impl RemixBrowserServer {
     }
 
     fn image_result(base64_data: String) -> Result<CallToolResult, McpError> {
-        Ok(CallToolResult::success(vec![Content::image(base64_data, "image/png")]))
+        Ok(CallToolResult::success(vec![Content::image(
+            base64_data,
+            "image/png",
+        )]))
+    }
+
+    async fn clear_snapshot_refs(&self) {
+        self.snapshot_refs.lock().await.clear();
+    }
+
+    async fn set_snapshot_refs(&self, refs: HashMap<String, String>) {
+        *self.snapshot_refs.lock().await = refs;
+    }
+
+    async fn normalize_selector(&self, selector: &str) -> Result<String, McpError> {
+        let refs = self.snapshot_refs.lock().await;
+        match resolve_selector(selector, &refs) {
+            Ok(resolved) => Ok(resolved),
+            Err(ResolveRefError::NotFound(ref_id)) => Err(McpError::internal_error(
+                format!("Ref '{}' not found, call snapshot again.", ref_id),
+                None,
+            )),
+            Err(err) => Err(McpError::internal_error(format!("{}", err), None)),
+        }
     }
 }
 
@@ -100,15 +156,7 @@ impl RemixBrowserServer {
 impl ServerHandler for RemixBrowserServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
-            instructions: Some(
-                "remix-browser provides headless Chrome browser automation via CDP. \
-                 Use these tools when the user wants to use Chrome, use the browser, \
-                 browse the web, open a URL, take screenshots, interact with web pages, \
-                 fill forms, scrape content, debug UIs, inspect the DOM, run JavaScript \
-                 in the browser, or monitor network requests. \
-                 Start with `navigate` to open a URL, then use other tools to interact."
-                    .into(),
-            ),
+            instructions: Some(SERVER_INSTRUCTIONS.into()),
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             ..Default::default()
         }
@@ -119,40 +167,70 @@ impl ServerHandler for RemixBrowserServer {
 impl RemixBrowserServer {
     // ── Navigation ──────────────────────────────────────────────────────
 
-    #[tool(description = "Navigate to a URL. Returns the page URL, title, and a snapshot of interactive elements.")]
+    #[tool(
+        description = "Navigate to a URL. Returns page URL and title, and optionally includes a snapshot of interactive elements."
+    )]
     async fn navigate(
         &self,
         #[tool(aggr)] params: navigation::NavigateParams,
     ) -> Result<CallToolResult, McpError> {
+        self.clear_snapshot_refs().await;
+        let include_snapshot = params.include_snapshot;
         let result = self
             .with_page(|page| async move {
                 let nav = navigation::navigate(&page, &params).await?;
-                let snap_params = snapshot::SnapshotParams { selector: None };
-                let snap = snapshot::snapshot(&page, &snap_params).await.unwrap_or_else(|_| "Snapshot unavailable".to_string());
-                Ok((nav, snap))
+                if include_snapshot {
+                    let snap_params = snapshot::SnapshotParams { selector: None };
+                    let snap = snapshot::snapshot_with_refs(&page, &snap_params).await.ok();
+                    Ok((nav, snap))
+                } else {
+                    Ok((nav, None))
+                }
             })
             .await?;
-        Self::text_result(format!("Navigated to {} — {}\n\n{}", result.0.title, result.0.url, result.1))
+
+        let snapshot_text = if include_snapshot {
+            match &result.1 {
+                Some(snap) => {
+                    self.set_snapshot_refs(snap.refs.clone()).await;
+                    Some(snap.text.as_str())
+                }
+                None => Some("Snapshot unavailable"),
+            }
+        } else {
+            None
+        };
+
+        Self::text_result(format_navigation_response(&result.0, snapshot_text))
     }
 
     #[tool(description = "Go back in browser history.")]
     async fn go_back(&self) -> Result<CallToolResult, McpError> {
+        self.clear_snapshot_refs().await;
         let result = self
             .with_page(|page| async move { navigation::go_back(&page).await })
             .await?;
-        Self::text_result(format!("Navigated back to {} — {}", result.title, result.url))
+        Self::text_result(format!(
+            "Navigated back to {} — {}",
+            result.title, result.url
+        ))
     }
 
     #[tool(description = "Go forward in browser history.")]
     async fn go_forward(&self) -> Result<CallToolResult, McpError> {
+        self.clear_snapshot_refs().await;
         let result = self
             .with_page(|page| async move { navigation::go_forward(&page).await })
             .await?;
-        Self::text_result(format!("Navigated forward to {} — {}", result.title, result.url))
+        Self::text_result(format!(
+            "Navigated forward to {} — {}",
+            result.title, result.url
+        ))
     }
 
     #[tool(description = "Reload the current page.")]
     async fn reload(&self) -> Result<CallToolResult, McpError> {
+        self.clear_snapshot_refs().await;
         let result = self
             .with_page(|page| async move { navigation::reload(&page).await })
             .await?;
@@ -172,7 +250,9 @@ impl RemixBrowserServer {
 
     // ── DOM ─────────────────────────────────────────────────────────────
 
-    #[tool(description = "Find elements matching a selector. Returns array of {index, tag, text, attributes}.")]
+    #[tool(
+        description = "Find elements matching a selector. Returns array of {index, tag, text, attributes}."
+    )]
     async fn find_elements(
         &self,
         #[tool(aggr)] params: dom::FindElementsParams,
@@ -188,6 +268,8 @@ impl RemixBrowserServer {
         &self,
         #[tool(aggr)] params: dom::GetTextParams,
     ) -> Result<CallToolResult, McpError> {
+        let mut params = params;
+        params.selector = self.normalize_selector(&params.selector).await?;
         let result = self
             .with_page(|page| async move { dom::get_text(&page, &params).await })
             .await?;
@@ -205,15 +287,18 @@ impl RemixBrowserServer {
         Self::text_result(result)
     }
 
-    #[tool(description = "Get a compact snapshot of interactive elements on the page. Returns indexed list of buttons, links, inputs, etc. Much more compact than get_html. Use the ref index with click/type_text selectors.")]
+    #[tool(
+        description = "Get a compact snapshot of interactive elements on the page. Returns indexed elements with stable refs like [ref=e0]. Use ref=eN selectors with click/type_text/get_text/wait_for."
+    )]
     async fn snapshot(
         &self,
         #[tool(aggr)] params: snapshot::SnapshotParams,
     ) -> Result<CallToolResult, McpError> {
         let result = self
-            .with_page(|page| async move { snapshot::snapshot(&page, &params).await })
+            .with_page(|page| async move { snapshot::snapshot_with_refs(&page, &params).await })
             .await?;
-        Self::text_result(result)
+        self.set_snapshot_refs(result.refs).await;
+        Self::text_result(result.text)
     }
 
     #[tool(description = "Wait for an element to appear, become visible, or be hidden.")]
@@ -221,6 +306,8 @@ impl RemixBrowserServer {
         &self,
         #[tool(aggr)] params: dom::WaitForParams,
     ) -> Result<CallToolResult, McpError> {
+        let mut params = params;
+        params.selector = self.normalize_selector(&params.selector).await?;
         let found = self
             .with_page(|page| async move { dom::wait_for(&page, &params).await })
             .await?;
@@ -233,11 +320,15 @@ impl RemixBrowserServer {
 
     // ── Interaction ─────────────────────────────────────────────────────
 
-    #[tool(description = "Click an element. Uses hybrid strategy: mouse events with JS fallback for obscured elements.")]
+    #[tool(
+        description = "Click an element. Uses hybrid strategy: mouse events with JS fallback for obscured elements."
+    )]
     async fn click(
         &self,
         #[tool(aggr)] params: interaction::ClickParams,
     ) -> Result<CallToolResult, McpError> {
+        let mut params = params;
+        params.selector = self.normalize_selector(&params.selector).await?;
         let result = self
             .with_page(|page| async move { interaction::do_click(&page, &params).await })
             .await?;
@@ -249,6 +340,8 @@ impl RemixBrowserServer {
         &self,
         #[tool(aggr)] params: interaction::TypeTextParams,
     ) -> Result<CallToolResult, McpError> {
+        let mut params = params;
+        params.selector = self.normalize_selector(&params.selector).await?;
         self.with_page(|page| async move { interaction::type_text(&page, &params).await })
             .await?;
         Self::text_result("Typed text into element")
@@ -259,6 +352,8 @@ impl RemixBrowserServer {
         &self,
         #[tool(aggr)] params: interaction::HoverParams,
     ) -> Result<CallToolResult, McpError> {
+        let mut params = params;
+        params.selector = self.normalize_selector(&params.selector).await?;
         self.with_page(|page| async move { interaction::hover(&page, &params).await })
             .await?;
         Self::text_result("Hovered over element")
@@ -269,6 +364,8 @@ impl RemixBrowserServer {
         &self,
         #[tool(aggr)] params: interaction::SelectOptionParams,
     ) -> Result<CallToolResult, McpError> {
+        let mut params = params;
+        params.selector = self.normalize_selector(&params.selector).await?;
         self.with_page(|page| async move { interaction::select_option(&page, &params).await })
             .await?;
         Self::text_result("Selected option")
@@ -299,7 +396,9 @@ impl RemixBrowserServer {
 
     // ── Visual ──────────────────────────────────────────────────────────
 
-    #[tool(description = "Take a screenshot of the page, viewport, or a specific element. Returns base64-encoded image.")]
+    #[tool(
+        description = "Take a screenshot of the page, viewport, or a specific element. Returns base64-encoded image."
+    )]
     async fn screenshot(
         &self,
         #[tool(aggr)] params: screenshot::ScreenshotParams,
@@ -324,8 +423,7 @@ impl RemixBrowserServer {
         let text = match &result {
             serde_json::Value::String(s) => s.clone(),
             serde_json::Value::Null => "null".to_string(),
-            other => serde_json::to_string(other)
-                .unwrap_or_else(|_| format!("{:?}", other)),
+            other => serde_json::to_string(other).unwrap_or_else(|_| format!("{:?}", other)),
         };
         Self::text_result(text)
     }
@@ -337,7 +435,7 @@ impl RemixBrowserServer {
     ) -> Result<CallToolResult, McpError> {
         let result = javascript::read_console(&self.console_log, &params)
             .await
-            .map_err(|e| McpError::internal_error(format!("{}", e), None))?;
+            .map_err(|e| McpError::internal_error(format!("{:#}", e), None))?;
         Self::json_result(result)
     }
 
@@ -350,26 +448,26 @@ impl RemixBrowserServer {
     ) -> Result<CallToolResult, McpError> {
         network::network_enable(&self.network_log, &params)
             .await
-            .map_err(|e| McpError::internal_error(format!("{}", e), None))?;
+            .map_err(|e| McpError::internal_error(format!("{:#}", e), None))?;
 
         // Wire up CDP event listeners on the active page
         let log = self.network_log.clone();
-        self.with_page(|page| async move {
-            network::start_listening(&page, log).await
-        })
-        .await?;
+        self.with_page(|page| async move { network::start_listening(&page, log).await })
+            .await?;
 
         Self::text_result("Network capture enabled")
     }
 
-    #[tool(description = "Get captured network requests. Filter by URL pattern, method, or status code.")]
+    #[tool(
+        description = "Get captured network requests. Filter by URL pattern, method, or status code."
+    )]
     async fn get_network_log(
         &self,
         #[tool(aggr)] params: network::GetNetworkLogParams,
     ) -> Result<CallToolResult, McpError> {
         let result = network::get_network_log(&self.network_log, &params)
             .await
-            .map_err(|e| McpError::internal_error(format!("{}", e), None))?;
+            .map_err(|e| McpError::internal_error(format!("{:#}", e), None))?;
         Self::json_result(result)
     }
 
@@ -380,12 +478,13 @@ impl RemixBrowserServer {
         &self,
         #[tool(aggr)] params: page::NewTabParams,
     ) -> Result<CallToolResult, McpError> {
+        self.clear_snapshot_refs().await;
         self.ensure_browser().await?;
         let session = self.session.lock().await;
         let session_ref = session.as_ref().unwrap();
-        let tab_id = page::new_tab(session_ref, &params).await.map_err(|e| {
-            McpError::internal_error(format!("{}", e), None)
-        })?;
+        let tab_id = page::new_tab(session_ref, &params)
+            .await
+            .map_err(|e| McpError::internal_error(format!("{:#}", e), None))?;
         Self::text_result(format!("Opened new tab: {}", tab_id))
     }
 
@@ -394,12 +493,13 @@ impl RemixBrowserServer {
         &self,
         #[tool(aggr)] params: page::CloseTabParams,
     ) -> Result<CallToolResult, McpError> {
+        self.clear_snapshot_refs().await;
         self.ensure_browser().await?;
         let session = self.session.lock().await;
         let session_ref = session.as_ref().unwrap();
-        page::close_tab(session_ref, &params).await.map_err(|e| {
-            McpError::internal_error(format!("{}", e), None)
-        })?;
+        page::close_tab(session_ref, &params)
+            .await
+            .map_err(|e| McpError::internal_error(format!("{:#}", e), None))?;
         Self::text_result("Closed tab")
     }
 
@@ -408,15 +508,16 @@ impl RemixBrowserServer {
         self.ensure_browser().await?;
         let session = self.session.lock().await;
         let session_ref = session.as_ref().unwrap();
-        let result = page::list_tabs(session_ref).await.map_err(|e| {
-            McpError::internal_error(format!("{}", e), None)
-        })?;
+        let result = page::list_tabs(session_ref)
+            .await
+            .map_err(|e| McpError::internal_error(format!("{:#}", e), None))?;
         Self::json_result(result)
     }
 
     // ── Scripting ──────────────────────────────────────────────────────
 
-    #[tool(description = "Execute a JavaScript automation script with access to a `page` object for browser control. \
+    #[tool(
+        description = "Execute a JavaScript automation script with access to a `page` object for browser control. \
         Use this for multi-step browser workflows — MUCH faster than individual tool calls. \
         The script runs synchronously (no await needed). \
         \n\nAvailable API:\n\
@@ -449,11 +550,13 @@ impl RemixBrowserServer {
           page.wait(1000);\n\
           console.log('Searched for: ' + item);\n\
         }\n\
-        page.snapshot();")]
+        page.snapshot();"
+    )]
     async fn run_script(
         &self,
         #[tool(aggr)] params: script::RunScriptParams,
     ) -> Result<CallToolResult, McpError> {
+        self.clear_snapshot_refs().await;
         let console_log = self.console_log.clone();
         let network_log = self.network_log.clone();
         let (result, screenshot_contents) = self
@@ -462,8 +565,66 @@ impl RemixBrowserServer {
             })
             .await?;
 
-        let mut contents: Vec<Content> = vec![Content::text(&result.format_output())];
+        let mut contents: Vec<Content> = vec![Content::text(result.format_output())];
         contents.extend(screenshot_contents);
         Ok(CallToolResult::success(contents))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_nav_result() -> navigation::NavigateResult {
+        navigation::NavigateResult {
+            url: "https://example.com".to_string(),
+            title: "Example".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_server_instructions_include_script_first_policy() {
+        assert!(SERVER_INSTRUCTIONS.contains("1-2 actions"));
+        assert!(SERVER_INSTRUCTIONS.contains("3+ actions"));
+        assert!(SERVER_INSTRUCTIONS.contains("prefer `run_script`"));
+    }
+
+    #[test]
+    fn test_format_navigation_response_with_snapshot() {
+        let text = format_navigation_response(&sample_nav_result(), Some("[0] [ref=e0] button"));
+        assert!(text.contains("Navigated to Example — https://example.com"));
+        assert!(text.contains("[ref=e0]"));
+    }
+
+    #[test]
+    fn test_format_navigation_response_without_snapshot() {
+        let text = format_navigation_response(&sample_nav_result(), None);
+        assert_eq!(text, "Navigated to Example — https://example.com");
+    }
+
+    #[tokio::test]
+    async fn test_normalize_selector_resolves_snapshot_ref() {
+        let server = RemixBrowserServer::new(true);
+        let refs = HashMap::from([("e4".to_string(), "#submit-btn".to_string())]);
+        server.set_snapshot_refs(refs).await;
+
+        let resolved = server
+            .normalize_selector("ref=e4")
+            .await
+            .expect("selector should resolve");
+
+        assert_eq!(resolved, "#submit-btn");
+    }
+
+    #[tokio::test]
+    async fn test_normalize_selector_stale_ref_has_guidance() {
+        let server = RemixBrowserServer::new(true);
+
+        let err = server
+            .normalize_selector("e99")
+            .await
+            .expect_err("missing ref should error");
+
+        assert!(format!("{}", err).contains("Ref 'e99' not found, call snapshot again."));
     }
 }

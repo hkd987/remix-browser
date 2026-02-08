@@ -14,7 +14,14 @@ pub async fn execute_js(page: &Page, params: &ExecuteJsParams) -> Result<serde_j
     let result: serde_json::Value = page
         .evaluate(params.expression.as_str())
         .await
-        .context("Failed to evaluate JavaScript")?
+        .with_context(|| {
+            let preview = if params.expression.len() > 200 {
+                format!("{}...", &params.expression[..200])
+            } else {
+                params.expression.clone()
+            };
+            format!("Failed to evaluate JavaScript: {}", preview)
+        })?
         .into_value()
         .unwrap_or(serde_json::Value::Null);
 

@@ -14,10 +14,7 @@ pub struct FindElementsParams {
     pub max_results: Option<u32>,
 }
 
-pub async fn find_elements(
-    page: &Page,
-    params: &FindElementsParams,
-) -> Result<serde_json::Value> {
+pub async fn find_elements(page: &Page, params: &FindElementsParams) -> Result<serde_json::Value> {
     let selector_type = params.selector_type.clone().unwrap_or_default();
     let elements = selectors::find_elements(page, &params.selector, &selector_type).await?;
     let max = params.max_results.unwrap_or(50) as usize;
@@ -46,8 +43,7 @@ pub struct GetTextParams {
 
 pub async fn get_text(page: &Page, params: &GetTextParams) -> Result<String> {
     let selector_type = params.selector_type.clone().unwrap_or_default();
-    let selector_js =
-        crate::interaction::click::selector_to_js(&params.selector, &selector_type)?;
+    let selector_js = crate::interaction::click::selector_to_js(&params.selector, &selector_type)?;
 
     let js = format!(
         r#"(() => {{
@@ -117,7 +113,11 @@ pub async fn get_html(page: &Page, params: &GetHtmlParams) -> Result<String> {
     let max_len = params.max_length.unwrap_or(50000) as usize;
     if result.len() > max_len {
         let mut truncated = result[..max_len].to_string();
-        truncated.push_str(&format!("\n\n...[truncated, showing {}/{} chars]", max_len, result.len()));
+        truncated.push_str(&format!(
+            "\n\n...[truncated, showing {}/{} chars]",
+            max_len,
+            result.len()
+        ));
         Ok(truncated)
     } else {
         Ok(result)
@@ -140,8 +140,7 @@ pub async fn wait_for(page: &Page, params: &WaitForParams) -> Result<bool> {
     let timeout = std::time::Duration::from_millis(params.timeout_ms.unwrap_or(5000));
     let state = params.state.as_deref().unwrap_or("visible");
     let selector_type = params.selector_type.clone().unwrap_or_default();
-    let selector_js =
-        crate::interaction::click::selector_to_js(&params.selector, &selector_type)?;
+    let selector_js = crate::interaction::click::selector_to_js(&params.selector, &selector_type)?;
 
     let check_js = match state {
         "hidden" => format!(

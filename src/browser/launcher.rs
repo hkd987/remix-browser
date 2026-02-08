@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use std::path::PathBuf;
 
 /// Find the Chrome/Chromium binary on the current platform.
@@ -71,7 +71,10 @@ fn chrome_candidates() -> Vec<String> {
             candidates.push(format!("{}\\Google\\Chrome\\Application\\chrome.exe", pf86));
         }
         if let Ok(local) = std::env::var("LOCALAPPDATA") {
-            candidates.push(format!("{}\\Google\\Chrome\\Application\\chrome.exe", local));
+            candidates.push(format!(
+                "{}\\Google\\Chrome\\Application\\chrome.exe",
+                local
+            ));
         }
     }
 

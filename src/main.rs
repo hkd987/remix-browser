@@ -1,6 +1,6 @@
 use clap::Parser;
-use rmcp::ServiceExt;
 use rmcp::transport::stdio;
+use rmcp::ServiceExt;
 
 /// remix-browser: Headless Chrome automation via CDP
 #[derive(Parser)]
@@ -28,10 +28,7 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let headless = !cli.headed;
 
-    tracing::info!(
-        "Starting remix-browser MCP server (headless: {})",
-        headless
-    );
+    tracing::info!("Starting remix-browser MCP server (headless: {})", headless);
 
     let server = remix_browser::server::RemixBrowserServer::new(headless);
     let service = server.clone().serve(stdio()).await?;

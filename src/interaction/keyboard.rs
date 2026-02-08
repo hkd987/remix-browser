@@ -102,7 +102,9 @@ pub async fn press_key(page: &Page, key: &str, modifiers: &[String]) -> Result<(
         meta = modifiers.iter().any(|m| m == "meta" || m == "command"),
     );
 
-    page.evaluate(js.as_str()).await.context("Failed to press key")?;
+    page.evaluate(js.as_str())
+        .await
+        .context("Failed to press key")?;
     Ok(())
 }
 
@@ -122,6 +124,9 @@ fn key_to_code(key: &str) -> (String, u32) {
         "PageUp" => ("PageUp".into(), 33),
         "PageDown" => ("PageDown".into(), 34),
         "Space" | " " => ("Space".into(), 32),
-        _ => (format!("Key{}", key.to_uppercase()), key.chars().next().map(|c| c as u32).unwrap_or(0)),
+        _ => (
+            format!("Key{}", key.to_uppercase()),
+            key.chars().next().map(|c| c as u32).unwrap_or(0),
+        ),
     }
 }

@@ -3,6 +3,7 @@ use chromiumoxide::cdp::browser_protocol::network::{
     EnableParams, EventRequestWillBeSent, EventResponseReceived,
 };
 use futures::StreamExt;
+use remix_browser::selectors::r#ref::resolve_selector as resolve_ref_selector;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -26,9 +27,7 @@ async fn launch_test_browser() -> (Browser, tokio::task::JoinHandle<()>, tempfil
         .await
         .expect("Failed to launch browser");
 
-    let handle = tokio::spawn(async move {
-        while let Some(_) = handler.next().await {}
-    });
+    let handle = tokio::spawn(async move { while let Some(_) = handler.next().await {} });
 
     // Keep tmp_dir alive — it gets cleaned up on drop
     (browser, handle, tmp_dir)
@@ -45,10 +44,7 @@ fn fixture_url(name: &str) -> String {
 #[tokio::test]
 async fn test_navigate_to_page() {
     let (browser, _handle, _tmp) = launch_test_browser().await;
-    let page = browser
-        .new_page("about:blank")
-        .await
-        .unwrap();
+    let page = browser.new_page("about:blank").await.unwrap();
 
     let url = fixture_url("basic.html");
     page.goto(&url).await.unwrap();
@@ -211,8 +207,7 @@ async fn test_take_screenshot() {
 
     let screenshot = page
         .screenshot(
-            chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotParams::builder()
-                .build(),
+            chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotParams::builder().build(),
         )
         .await
         .unwrap();
@@ -232,9 +227,7 @@ async fn test_element_screenshot() {
 
     let element = page.find_element("#title").await.unwrap();
     let screenshot = element
-        .screenshot(
-            chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat::Png,
-        )
+        .screenshot(chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat::Png)
         .await
         .unwrap();
 
@@ -548,9 +541,9 @@ async fn test_network_capture() {
         "Should have captured at least one network entry"
     );
 
-    let has_httpbin = captured.iter().any(|(url, _, status)| {
-        url.contains("httpbin.org") && *status == 200
-    });
+    let has_httpbin = captured
+        .iter()
+        .any(|(url, _, status)| url.contains("httpbin.org") && *status == 200);
     assert!(
         has_httpbin,
         "Should have captured httpbin.org request with status 200, got: {:?}",
@@ -579,16 +572,43 @@ async fn test_snapshot_form_page() {
         .unwrap();
 
     // Should contain form elements
-    assert!(result.contains("input"), "Snapshot should contain input elements, got:\n{}", result);
-    assert!(result.contains("select"), "Snapshot should contain select element, got:\n{}", result);
-    assert!(result.contains("textarea"), "Snapshot should contain textarea element, got:\n{}", result);
-    assert!(result.contains("button"), "Snapshot should contain button element, got:\n{}", result);
+    assert!(
+        result.contains("input"),
+        "Snapshot should contain input elements, got:\n{}",
+        result
+    );
+    assert!(
+        result.contains("select"),
+        "Snapshot should contain select element, got:\n{}",
+        result
+    );
+    assert!(
+        result.contains("textarea"),
+        "Snapshot should contain textarea element, got:\n{}",
+        result
+    );
+    assert!(
+        result.contains("button"),
+        "Snapshot should contain button element, got:\n{}",
+        result
+    );
 
     // Should be compact — much less than full HTML
-    assert!(result.len() < 5000, "Snapshot should be compact (<5KB), got {} bytes", result.len());
+    assert!(
+        result.len() < 5000,
+        "Snapshot should be compact (<5KB), got {} bytes",
+        result.len()
+    );
 
     // Should have indexed lines
-    assert!(result.contains("[0]"), "Snapshot should have indexed elements");
+    assert!(
+        result.contains("[0]"),
+        "Snapshot should have indexed elements"
+    );
+    assert!(
+        result.contains("[ref=e"),
+        "Snapshot should include ref tokens"
+    );
 }
 
 #[tokio::test]
@@ -606,9 +626,25 @@ async fn test_snapshot_basic_page() {
         .unwrap();
 
     // Should find the heading and link
-    assert!(result.contains("h1"), "Snapshot should contain h1 heading, got:\n{}", result);
-    assert!(result.contains("a "), "Snapshot should contain link element, got:\n{}", result);
-    assert!(result.contains("Click me"), "Snapshot should contain link text, got:\n{}", result);
+    assert!(
+        result.contains("h1"),
+        "Snapshot should contain h1 heading, got:\n{}",
+        result
+    );
+    assert!(
+        result.contains("a "),
+        "Snapshot should contain link element, got:\n{}",
+        result
+    );
+    assert!(
+        result.contains("Click me"),
+        "Snapshot should contain link text, got:\n{}",
+        result
+    );
+    assert!(
+        result.contains("[ref=e"),
+        "Snapshot should contain ref tokens"
+    );
 }
 
 #[tokio::test]
@@ -629,8 +665,170 @@ async fn test_snapshot_scoped_selector() {
         .unwrap();
 
     // Should contain form elements but be scoped
-    assert!(result.contains("input"), "Scoped snapshot should contain inputs");
-    assert!(result.contains("[0]"), "Scoped snapshot should have indexed elements");
+    assert!(
+        result.contains("input"),
+        "Scoped snapshot should contain inputs"
+    );
+    assert!(
+        result.contains("[0]"),
+        "Scoped snapshot should have indexed elements"
+    );
+    assert!(
+        result.contains("[ref=e"),
+        "Scoped snapshot should include ref tokens"
+    );
+}
+
+#[tokio::test]
+async fn test_ref_selector_resolution_for_get_text_and_wait_for() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser
+        .new_page(fixture_url("basic.html").as_str())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let snap = remix_browser::tools::snapshot::snapshot_with_refs(
+        &page,
+        &remix_browser::tools::snapshot::SnapshotParams { selector: None },
+    )
+    .await
+    .unwrap();
+
+    let title_ref = snap
+        .refs
+        .iter()
+        .find(|(_, selector)| selector.as_str() == "#title")
+        .map(|(ref_id, _)| ref_id.clone())
+        .expect("expected #title ref in snapshot");
+
+    let resolved = resolve_ref_selector(&format!("ref={}", title_ref), &snap.refs)
+        .expect("ref selector should resolve");
+    assert_eq!(resolved, "#title");
+
+    let css_text = remix_browser::tools::dom::get_text(
+        &page,
+        &remix_browser::tools::dom::GetTextParams {
+            selector: "#title".to_string(),
+            selector_type: Some(remix_browser::selectors::SelectorType::Css),
+        },
+    )
+    .await
+    .unwrap();
+
+    let ref_text = remix_browser::tools::dom::get_text(
+        &page,
+        &remix_browser::tools::dom::GetTextParams {
+            selector: resolved.clone(),
+            selector_type: Some(remix_browser::selectors::SelectorType::Css),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(css_text, ref_text);
+
+    let css_wait = remix_browser::tools::dom::wait_for(
+        &page,
+        &remix_browser::tools::dom::WaitForParams {
+            selector: "#title".to_string(),
+            selector_type: Some(remix_browser::selectors::SelectorType::Css),
+            timeout_ms: Some(1000),
+            state: Some("visible".to_string()),
+        },
+    )
+    .await
+    .unwrap();
+
+    let ref_wait = remix_browser::tools::dom::wait_for(
+        &page,
+        &remix_browser::tools::dom::WaitForParams {
+            selector: resolved,
+            selector_type: Some(remix_browser::selectors::SelectorType::Css),
+            timeout_ms: Some(1000),
+            state: Some("visible".to_string()),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert!(css_wait && ref_wait);
+}
+
+#[tokio::test]
+async fn test_ref_selector_resolution_for_click_and_type_text() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser
+        .new_page(fixture_url("form.html").as_str())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let snap = remix_browser::tools::snapshot::snapshot_with_refs(
+        &page,
+        &remix_browser::tools::snapshot::SnapshotParams { selector: None },
+    )
+    .await
+    .unwrap();
+
+    let name_ref = snap
+        .refs
+        .iter()
+        .find(|(_, selector)| selector.as_str() == "#name")
+        .map(|(ref_id, _)| ref_id.clone())
+        .expect("expected #name ref in snapshot");
+
+    let submit_ref = snap
+        .refs
+        .iter()
+        .find(|(_, selector)| selector.as_str() == "#submit-btn")
+        .map(|(ref_id, _)| ref_id.clone())
+        .expect("expected #submit-btn ref in snapshot");
+
+    let resolved_name =
+        resolve_ref_selector(&name_ref, &snap.refs).expect("name ref should resolve");
+    let resolved_submit = resolve_ref_selector(&format!("[ref={}]", submit_ref), &snap.refs)
+        .expect("submit ref should resolve");
+
+    remix_browser::tools::interaction::type_text(
+        &page,
+        &remix_browser::tools::interaction::TypeTextParams {
+            selector: resolved_name,
+            text: "Ref User".to_string(),
+            selector_type: Some(remix_browser::selectors::SelectorType::Css),
+            clear_first: Some(true),
+        },
+    )
+    .await
+    .unwrap();
+
+    let value: String = page
+        .evaluate("document.getElementById('name').value")
+        .await
+        .unwrap()
+        .into_value()
+        .unwrap();
+    assert_eq!(value, "Ref User");
+
+    remix_browser::tools::interaction::do_click(
+        &page,
+        &remix_browser::tools::interaction::ClickParams {
+            selector: resolved_submit,
+            selector_type: Some(remix_browser::selectors::SelectorType::Css),
+            button: Some("left".to_string()),
+        },
+    )
+    .await
+    .unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let result_display: String = page
+        .evaluate("getComputedStyle(document.getElementById('result')).display")
+        .await
+        .unwrap()
+        .into_value()
+        .unwrap();
+    assert_eq!(result_display, "block");
 }
 
 // ── Circular Buffer Tests ──────────────────────────────────────────────
@@ -656,8 +854,16 @@ async fn test_network_log_circular_buffer() {
     let entries = log.get_log(None, None, None).await;
     assert_eq!(entries.len(), 500, "Network log should cap at 500 entries");
     // Oldest entries should be dropped (0-99 dropped, 100-599 kept)
-    assert!(entries[0].url.contains("/100"), "First entry should be #100, got: {}", entries[0].url);
-    assert!(entries[499].url.contains("/599"), "Last entry should be #599, got: {}", entries[499].url);
+    assert!(
+        entries[0].url.contains("/100"),
+        "First entry should be #100, got: {}",
+        entries[0].url
+    );
+    assert!(
+        entries[499].url.contains("/599"),
+        "Last entry should be #599, got: {}",
+        entries[499].url
+    );
 }
 
 #[tokio::test]
@@ -675,9 +881,21 @@ async fn test_console_log_circular_buffer() {
     }
 
     let entries = log.read(None, false, None).await;
-    assert_eq!(entries.len(), 1000, "Console log should cap at 1000 entries");
-    assert!(entries[0].text.contains("200"), "First entry should be #200, got: {}", entries[0].text);
-    assert!(entries[999].text.contains("1199"), "Last entry should be #1199, got: {}", entries[999].text);
+    assert_eq!(
+        entries.len(),
+        1000,
+        "Console log should cap at 1000 entries"
+    );
+    assert!(
+        entries[0].text.contains("200"),
+        "First entry should be #200, got: {}",
+        entries[0].text
+    );
+    assert!(
+        entries[999].text.contains("1199"),
+        "Last entry should be #1199, got: {}",
+        entries[999].text
+    );
 }
 
 // ── run_script Tests ──────────────────────────────────────────────────
@@ -704,9 +922,20 @@ async fn test_run_script_navigate_and_snapshot() {
             .await
             .unwrap();
 
-    assert!(result.success, "Script should succeed, error: {:?}", result.error);
-    assert!(result.output.contains("h1"), "Output should contain snapshot with h1, got:\n{}", result.output);
-    assert!(result.url.contains("basic.html"), "Final URL should be basic.html");
+    assert!(
+        result.success,
+        "Script should succeed, error: {:?}",
+        result.error
+    );
+    assert!(
+        result.output.contains("h1"),
+        "Output should contain snapshot with h1, got:\n{}",
+        result.output
+    );
+    assert!(
+        result.url.contains("basic.html"),
+        "Final URL should be basic.html"
+    );
     assert_eq!(result.title, "Basic Test Page");
 }
 
@@ -733,8 +962,16 @@ async fn test_run_script_form_fill() {
             .await
             .unwrap();
 
-    assert!(result.success, "Script should succeed, error: {:?}", result.error);
-    assert!(result.output.contains("Test User"), "Output should contain typed value, got:\n{}", result.output);
+    assert!(
+        result.success,
+        "Script should succeed, error: {:?}",
+        result.error
+    );
+    assert!(
+        result.output.contains("Test User"),
+        "Output should contain typed value, got:\n{}",
+        result.output
+    );
 }
 
 #[tokio::test]
@@ -761,10 +998,23 @@ async fn test_run_script_loop() {
             .await
             .unwrap();
 
-    assert!(result.success, "Script should succeed, error: {:?}", result.error);
-    assert!(result.output.contains("Processing: alpha"), "Should log alpha");
-    assert!(result.output.contains("Processing: beta"), "Should log beta");
-    assert!(result.output.contains("Processing: gamma"), "Should log gamma");
+    assert!(
+        result.success,
+        "Script should succeed, error: {:?}",
+        result.error
+    );
+    assert!(
+        result.output.contains("Processing: alpha"),
+        "Should log alpha"
+    );
+    assert!(
+        result.output.contains("Processing: beta"),
+        "Should log beta"
+    );
+    assert!(
+        result.output.contains("Processing: gamma"),
+        "Should log gamma"
+    );
 }
 
 #[tokio::test]
@@ -792,8 +1042,14 @@ async fn test_run_script_error_handling() {
 
     assert!(!result.success, "Script should fail on nonexistent element");
     assert!(result.error.is_some(), "Should have error message");
-    assert!(result.output.contains("before error"), "Should have output before the error");
-    assert!(!result.output.contains("after error"), "Should not have output after error");
+    assert!(
+        result.output.contains("before error"),
+        "Should have output before the error"
+    );
+    assert!(
+        !result.output.contains("after error"),
+        "Should not have output after error"
+    );
 }
 
 #[tokio::test]
@@ -817,7 +1073,11 @@ async fn test_run_script_screenshot() {
             .await
             .unwrap();
 
-    assert!(result.success, "Script should succeed, error: {:?}", result.error);
+    assert!(
+        result.success,
+        "Script should succeed, error: {:?}",
+        result.error
+    );
     assert_eq!(screenshots.len(), 1, "Should have 1 screenshot");
 }
 
@@ -833,7 +1093,8 @@ async fn test_run_script_console_log() {
         console.log('hello world');
         console.log('number:', 42);
         console.log('done');
-    "#.to_string();
+    "#
+    .to_string();
 
     let params = remix_browser::tools::script::RunScriptParams { script };
     let (result, _screenshots) =
@@ -841,8 +1102,15 @@ async fn test_run_script_console_log() {
             .await
             .unwrap();
 
-    assert!(result.success, "Script should succeed, error: {:?}", result.error);
-    assert!(result.output.contains("hello world"), "Should contain 'hello world'");
+    assert!(
+        result.success,
+        "Script should succeed, error: {:?}",
+        result.error
+    );
+    assert!(
+        result.output.contains("hello world"),
+        "Should contain 'hello world'"
+    );
     assert!(result.output.contains("42"), "Should contain '42'");
     assert!(result.output.contains("done"), "Should contain 'done'");
 }
@@ -869,6 +1137,14 @@ async fn test_run_script_js_execution() {
             .await
             .unwrap();
 
-    assert!(result.success, "Script should succeed, error: {:?}", result.error);
-    assert!(result.output.contains("Basic Test Page"), "Should contain page title, got:\n{}", result.output);
+    assert!(
+        result.success,
+        "Script should succeed, error: {:?}",
+        result.error
+    );
+    assert!(
+        result.output.contains("Basic Test Page"),
+        "Should contain page title, got:\n{}",
+        result.output
+    );
 }

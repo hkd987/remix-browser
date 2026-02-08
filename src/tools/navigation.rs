@@ -2,12 +2,19 @@ use anyhow::{Context, Result};
 use chromiumoxide::page::Page;
 use serde::{Deserialize, Serialize};
 
+fn default_include_snapshot() -> bool {
+    true
+}
+
 #[derive(Debug, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct NavigateParams {
     #[schemars(description = "URL to navigate to")]
     pub url: String,
     #[schemars(description = "Wait condition: load, domcontentloaded, or networkidle")]
     pub wait_until: Option<String>,
+    #[serde(default = "default_include_snapshot")]
+    #[schemars(description = "Include snapshot in navigation tool response (default: true)")]
+    pub include_snapshot: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -94,9 +101,7 @@ pub async fn get_page_info(page: &Page) -> Result<PageInfo> {
     let title = page.get_title().await?.unwrap_or_default();
 
     let viewport: serde_json::Value = page
-        .evaluate(
-            "({ width: window.innerWidth, height: window.innerHeight })",
-        )
+        .evaluate("({ width: window.innerWidth, height: window.innerHeight })")
         .await?
         .into_value()?;
 
@@ -108,4 +113,31 @@ pub async fn get_page_info(page: &Page) -> Result<PageInfo> {
             height: viewport["height"].as_u64().unwrap_or(720) as u32,
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_navigate_params_default_include_snapshot_true() {
+        let params: NavigateParams = serde_json::from_value(json!({
+            "url": "https://example.com"
+        }))
+        .expect("params should deserialize");
+
+        assert!(params.include_snapshot);
+    }
+
+    #[test]
+    fn test_navigate_params_include_snapshot_false() {
+        let params: NavigateParams = serde_json::from_value(json!({
+            "url": "https://example.com",
+            "include_snapshot": false
+        }))
+        .expect("params should deserialize");
+
+        assert!(!params.include_snapshot);
+    }
 }

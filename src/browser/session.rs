@@ -20,11 +20,9 @@ pub struct BrowserSession {
 impl BrowserSession {
     /// Launch a new browser and establish CDP connection.
     pub async fn launch(headless: bool) -> Result<Self> {
-        let user_data_dir =
-            tempfile::tempdir().context("Failed to create temp dir for Chrome")?;
+        let user_data_dir = tempfile::tempdir().context("Failed to create temp dir for Chrome")?;
 
-        let mut builder = BrowserConfig::builder()
-            .user_data_dir(user_data_dir.path());
+        let mut builder = BrowserConfig::builder().user_data_dir(user_data_dir.path());
 
         if headless {
             builder = builder.arg("--headless=new");
@@ -48,8 +46,9 @@ impl BrowserSession {
 
         let config = builder.build().map_err(|e| anyhow::anyhow!("{}", e))?;
 
-        let (browser, mut handler) =
-            Browser::launch(config).await.context("Failed to launch Chrome")?;
+        let (browser, mut handler) = Browser::launch(config)
+            .await
+            .context("Failed to launch Chrome")?;
 
         let handler_task = tokio::spawn(async move {
             while let Some(_event) = handler.next().await {
@@ -65,10 +64,7 @@ impl BrowserSession {
 
         let pool = Arc::new(Mutex::new(TabPool::new(page)));
 
-        tracing::info!(
-            "Browser session started (headless: {})",
-            headless
-        );
+        tracing::info!("Browser session started (headless: {})", headless);
 
         Ok(Self {
             browser,
