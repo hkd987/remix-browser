@@ -31,6 +31,12 @@ pub struct NetworkLog {
     pub pending_count: Arc<AtomicU32>,
 }
 
+impl Default for NetworkLog {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NetworkLog {
     pub fn new() -> Self {
         Self {

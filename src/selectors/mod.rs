@@ -121,10 +121,10 @@ pub fn normalize_selector_type(selector: &str, selector_type: SelectorType) -> (
     if matches!(selector_type, SelectorType::Css) {
         if let Some(start) = selector.find(":has-text(") {
             let after = &selector[start + ":has-text(".len()..];
-            let (quote, rest) = if after.starts_with('"') {
-                ('"', &after[1..])
-            } else if after.starts_with('\'') {
-                ('\'', &after[1..])
+            let (quote, rest) = if let Some(stripped) = after.strip_prefix('"') {
+                ('"', stripped)
+            } else if let Some(stripped) = after.strip_prefix('\'') {
+                ('\'', stripped)
             } else {
                 return (selector.to_string(), selector_type);
             };

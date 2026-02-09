@@ -6,7 +6,7 @@
       "name": "remix-browser",
       "source": "./",
       "description": "Blazing fast headless Chrome automation via CDP — no extension needed",
-      "version": "0.2.4"
+      "version": "0.2.5"
     }
   ]
 }
