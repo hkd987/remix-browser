@@ -19,8 +19,6 @@ A Rust-native [MCP](https://modelcontextprotocol.io/) server that gives AI agent
 
 ## Benchmarks
 
-Tested with Claude Sonnet 4 on the [game-tracker](https://github.com/SawyerHood/dev-browser-eval) benchmark (create account, login, add 5 games, view collection). Averaged over 3 runs.
-
 | Method | Time | Cost | Turns | Success |
 |--------|------|------|-------|---------|
 | **remix-browser** | **3m 35s** | **$0.83** | **23** | **100%** |
@@ -29,7 +27,7 @@ Tested with Claude Sonnet 4 on the [game-tracker](https://github.com/SawyerHood/
 | [Playwright Skill](https://github.com/anthropics/anthropic-quickstarts/tree/main/mcp-playwright) | 8m 07s | $1.45 | 38 | 100% |
 | Claude Code Native Chrome | 12m 54s | $2.81 | 80 | 100% |
 
-_See [dev-browser-eval](https://github.com/SawyerHood/dev-browser-eval) for methodology._
+_See [dev-browser-eval](https://github.com/SawyerHood/dev-browser-eval) for methodology. The model used was sonnet 4.5
 
 ## Why remix-browser?
 
