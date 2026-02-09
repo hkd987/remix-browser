@@ -15,9 +15,10 @@ const SERVER_INSTRUCTIONS: &str = "remix-browser provides headless Chrome browse
 Use these tools when the user wants to use Chrome, use the browser, browse the web, open a URL, \
 take screenshots, interact with web pages, fill forms, scrape content, debug UIs, inspect the DOM, \
 run JavaScript in the browser, or monitor network requests. \
-For simple tasks (1-2 actions), use granular tools. \
-For workflows with 3+ actions, loops, or extraction, prefer `run_script` to reduce tool calls and latency. \
-Use `snapshot` only when needed to target elements with fresh refs.";
+Use `run_script` for ALL browser interactions — it is much faster than individual tool calls. \
+A snapshot is automatically appended after every script, so refs ([ref=eN]) are immediately available. \
+Strategy: do the first action with a short script to learn the UI, then batch remaining repetitive work \
+into a single run_script with a loop. Use granular tools (click, type_text, etc.) only for 1-2 simple follow-up actions.";
 
 fn format_navigation_response(
     result: &navigation::NavigateResult,
@@ -517,40 +518,37 @@ impl RemixBrowserServer {
     // ── Scripting ──────────────────────────────────────────────────────
 
     #[tool(
-        description = "Execute a JavaScript automation script with access to a `page` object for browser control. \
-        Use this for multi-step browser workflows — MUCH faster than individual tool calls. \
-        The script runs synchronously (no await needed). \
+        description = "Execute a JavaScript automation script with access to a `page` object. \
+        MUCH faster than individual tool calls for multi-step workflows. \
+        Runs synchronously (no await needed). \
+        A snapshot of interactive elements is automatically appended after the script finishes. \
+        Refs from the snapshot ([ref=eN]) can be used with click/type_text/get_text tools afterwards.\
+        \n\n**Strategy**: First do 1 action with a short script to learn the UI selectors, \
+        then batch remaining repetitive work into a single run_script with a loop.\
         \n\nAvailable API:\n\
-        - page.navigate(url) — go to URL, returns 'title — url'\n\
-        - page.back() / page.forward() / page.reload() — history navigation\n\
-        - page.click(selector, {type:'text'}) — click element (type: css|text|xpath)\n\
-        - page.type(selector, text, {clear:true}) — type into input\n\
-        - page.press(key, {modifiers:['ctrl']}) — press keyboard key\n\
-        - page.hover(selector, {type:'text'}) — hover over element\n\
-        - page.select(selector, value, {type:'css'}) — select dropdown option\n\
-        - page.scroll(direction, {amount:500, selector:'div'}) — scroll page/element\n\
-        - page.wait(ms) — pause execution\n\
-        - page.waitFor(selector, {timeout:5000, state:'visible'}) — wait for element\n\
-        - page.snapshot(selector?) — get interactive element tree (compact)\n\
-        - page.screenshot() — capture page image\n\
-        - page.getText(selector, {type:'css'}) — get element text\n\
-        - page.getHtml(selector?, {outer:true}) — get element HTML\n\
-        - page.findElements(selector, {type:'css'}) — find matching elements\n\
-        - page.js(expr) — run JS in browser context, return result\n\
-        - page.readConsole({level:'error'}) — read console entries\n\
-        - page.enableNetwork(patterns?) — enable network capture\n\
-        - page.getNetworkLog({method:'GET'}) — get captured requests\n\
-        - console.log(...) — output data (collected and returned)\n\
-        \n\nExample:\n\
+        - page.navigate(url), page.back(), page.forward(), page.reload()\n\
+        - page.click(selector, {type:'text'}), page.type(selector, text, {clear:true})\n\
+        - page.press(key, {modifiers:['ctrl']}), page.hover(selector), page.select(selector, value)\n\
+        - page.scroll(direction, {amount:500}), page.wait(ms), page.waitFor(selector, {timeout:5000})\n\
+        - page.snapshot(), page.screenshot(), page.getText(selector), page.getHtml()\n\
+        - page.findElements(selector), page.js(expr), console.log(...)\n\
+        - page.readConsole(), page.enableNetwork(), page.getNetworkLog()\n\
+        \n\nExample — fill and submit a form, then batch-process a list:\n\
         page.navigate('https://example.com');\n\
-        const items = ['one','two','three'];\n\
+        page.type('#email', 'user@test.com');\n\
+        page.type('#password', 'secret');\n\
+        page.click('Submit', {type:'text'});\n\
+        page.wait(2000);\n\
+        \n\
+        const items = ['item1', 'item2', 'item3'];\n\
         for (const item of items) {\n\
-          page.type('#search', item, {clear:true});\n\
-          page.click('button[type=submit]');\n\
+          page.type('input[name=search]', item, {clear:true});\n\
           page.wait(1000);\n\
-          console.log('Searched for: ' + item);\n\
-        }\n\
-        page.snapshot();"
+          page.click(item, {type:'text'});\n\
+          page.wait(500);\n\
+          page.click('Save', {type:'text'});\n\
+          page.wait(1000);\n\
+        }"
     )]
     async fn run_script(
         &self,
@@ -559,13 +557,39 @@ impl RemixBrowserServer {
         self.clear_snapshot_refs().await;
         let console_log = self.console_log.clone();
         let network_log = self.network_log.clone();
-        let (result, screenshot_contents) = self
+        let (result, screenshot_contents, script_refs) = self
             .with_page(|page| async move {
                 script::run_script(&page, &params, &console_log, &network_log).await
             })
             .await?;
 
-        let mut contents: Vec<Content> = vec![Content::text(result.format_output())];
+        // Auto-snapshot: capture page state after script completes
+        let auto_snap = self
+            .with_page(|page| async move {
+                let snap_params = snapshot::SnapshotParams { selector: None };
+                snapshot::snapshot_with_refs(&page, &snap_params).await
+            })
+            .await
+            .ok();
+
+        // Set refs from auto-snapshot (preferred) or from script's last page.snapshot() call
+        if let Some(ref snap) = auto_snap {
+            self.set_snapshot_refs(snap.refs.clone()).await;
+        } else if let Some(refs) = script_refs {
+            self.set_snapshot_refs(refs).await;
+        }
+
+        // Build output with auto-snapshot appended
+        let output_text = match &auto_snap {
+            Some(snap) => format!(
+                "{}\n\nPage state:\n{}",
+                result.format_output(),
+                snap.text
+            ),
+            None => result.format_output(),
+        };
+
+        let mut contents: Vec<Content> = vec![Content::text(output_text)];
         contents.extend(screenshot_contents);
         Ok(CallToolResult::success(contents))
     }
@@ -584,9 +608,9 @@ mod tests {
 
     #[test]
     fn test_server_instructions_include_script_first_policy() {
-        assert!(SERVER_INSTRUCTIONS.contains("1-2 actions"));
-        assert!(SERVER_INSTRUCTIONS.contains("3+ actions"));
-        assert!(SERVER_INSTRUCTIONS.contains("prefer `run_script`"));
+        assert!(SERVER_INSTRUCTIONS.contains("run_script"));
+        assert!(SERVER_INSTRUCTIONS.contains("automatically appended"));
+        assert!(SERVER_INSTRUCTIONS.contains("batch remaining repetitive work"));
     }
 
     #[test]

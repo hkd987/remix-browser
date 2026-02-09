@@ -8,6 +8,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crate::selectors::SelectorType;
+use std::collections::HashMap;
+
 use crate::tools::{dom, interaction, javascript, navigation, network, screenshot, snapshot};
 
 use rmcp::model::Content;
@@ -60,6 +62,7 @@ struct ScriptContext {
     network_log: network::NetworkLog,
     output_lines: Mutex<Vec<String>>,
     screenshots: Mutex<Vec<String>>,
+    snapshot_refs: Mutex<Option<HashMap<String, String>>>,
 }
 
 // ── Entry Point ────────────────────────────────────────────────────────
@@ -69,7 +72,7 @@ pub async fn run_script(
     params: &RunScriptParams,
     console_log: &javascript::ConsoleLog,
     network_log: &network::NetworkLog,
-) -> Result<(ScriptResult, Vec<Content>)> {
+) -> Result<(ScriptResult, Vec<Content>, Option<HashMap<String, String>>)> {
     let ctx = Arc::new(ScriptContext {
         handle: tokio::runtime::Handle::current(),
         page: page.clone(),
@@ -77,6 +80,7 @@ pub async fn run_script(
         network_log: network_log.clone(),
         output_lines: Mutex::new(Vec::new()),
         screenshots: Mutex::new(Vec::new()),
+        snapshot_refs: Mutex::new(None),
     });
 
     let script = params.script.clone();
@@ -101,6 +105,9 @@ pub async fn run_script(
         .map(|b64| Content::image(b64.clone(), "image/png"))
         .collect();
 
+    // Extract snapshot refs if page.snapshot() was called during the script
+    let snapshot_refs = ctx.snapshot_refs.lock().unwrap().take();
+
     match result {
         Ok(()) => Ok((
             ScriptResult {
@@ -112,6 +119,7 @@ pub async fn run_script(
                 title,
             },
             contents,
+            snapshot_refs,
         )),
         Err(err_msg) => Ok((
             ScriptResult {
@@ -123,6 +131,7 @@ pub async fn run_script(
                 title,
             },
             contents,
+            snapshot_refs,
         )),
     }
 }
@@ -658,10 +667,13 @@ fn make_snapshot(ctx: Arc<ScriptContext>) -> NativeFunction {
             let page = ctx.page.clone();
             let result = ctx
                 .handle
-                .block_on(async { snapshot::snapshot(&page, &params).await })
+                .block_on(async { snapshot::snapshot_with_refs(&page, &params).await })
                 .map_err(js_err)?;
 
-            Ok(JsValue::from(boa_engine::js_string!(result)))
+            // Persist refs so they can be returned to the server for subsequent tool calls
+            *ctx.snapshot_refs.lock().unwrap() = Some(result.refs);
+
+            Ok(JsValue::from(boa_engine::js_string!(result.text)))
         })
     }
 }

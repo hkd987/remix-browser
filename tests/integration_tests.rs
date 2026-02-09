@@ -917,7 +917,7 @@ async fn test_run_script_navigate_and_snapshot() {
     );
 
     let params = remix_browser::tools::script::RunScriptParams { script };
-    let (result, _screenshots) =
+    let (result, _screenshots, _refs) =
         remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log)
             .await
             .unwrap();
@@ -957,7 +957,7 @@ async fn test_run_script_form_fill() {
     );
 
     let params = remix_browser::tools::script::RunScriptParams { script };
-    let (result, _screenshots) =
+    let (result, _screenshots, _refs) =
         remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log)
             .await
             .unwrap();
@@ -993,7 +993,7 @@ async fn test_run_script_loop() {
     );
 
     let params = remix_browser::tools::script::RunScriptParams { script };
-    let (result, _screenshots) =
+    let (result, _screenshots, _refs) =
         remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log)
             .await
             .unwrap();
@@ -1035,7 +1035,7 @@ async fn test_run_script_error_handling() {
     );
 
     let params = remix_browser::tools::script::RunScriptParams { script };
-    let (result, _screenshots) =
+    let (result, _screenshots, _refs) =
         remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log)
             .await
             .unwrap();
@@ -1068,7 +1068,7 @@ async fn test_run_script_screenshot() {
     );
 
     let params = remix_browser::tools::script::RunScriptParams { script };
-    let (result, screenshots) =
+    let (result, screenshots, _refs) =
         remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log)
             .await
             .unwrap();
@@ -1097,7 +1097,7 @@ async fn test_run_script_console_log() {
     .to_string();
 
     let params = remix_browser::tools::script::RunScriptParams { script };
-    let (result, _screenshots) =
+    let (result, _screenshots, _refs) =
         remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log)
             .await
             .unwrap();
@@ -1132,7 +1132,7 @@ async fn test_run_script_js_execution() {
     );
 
     let params = remix_browser::tools::script::RunScriptParams { script };
-    let (result, _screenshots) =
+    let (result, _screenshots, _refs) =
         remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log)
             .await
             .unwrap();
@@ -1146,5 +1146,47 @@ async fn test_run_script_js_execution() {
         result.output.contains("Basic Test Page"),
         "Should contain page title, got:\n{}",
         result.output
+    );
+}
+
+#[tokio::test]
+async fn test_run_script_snapshot_persists_refs() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser.new_page("about:blank").await.unwrap();
+
+    let console_log = remix_browser::tools::javascript::ConsoleLog::new();
+    let network_log = remix_browser::tools::network::NetworkLog::new();
+
+    let url = fixture_url("basic.html");
+    let script = format!(
+        r#"page.navigate('{}');
+        page.snapshot();"#,
+        url
+    );
+
+    let params = remix_browser::tools::script::RunScriptParams { script };
+    let (result, _screenshots, refs) =
+        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log)
+            .await
+            .unwrap();
+
+    assert!(
+        result.success,
+        "Script should succeed, error: {:?}",
+        result.error
+    );
+    assert!(
+        refs.is_some(),
+        "Snapshot refs should be returned from run_script"
+    );
+    let refs = refs.unwrap();
+    assert!(
+        !refs.is_empty(),
+        "Refs map should contain entries from snapshot"
+    );
+    assert!(
+        refs.contains_key("e0"),
+        "Refs should contain e0, got keys: {:?}",
+        refs.keys().collect::<Vec<_>>()
     );
 }

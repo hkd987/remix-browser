@@ -9,10 +9,15 @@ description: >-
 ---
 Use the remix-browser MCP tools (prefixed `mcp__remix-browser__`) for all browser tasks.
 
-**Performance usage pattern**:
-- For 1-2 simple actions, use granular tools (`navigate`, `click`, `type_text`, etc.).
-- For workflows with 3+ actions, loops, or repeated extraction, prefer `run_script` to reduce tool calls and latency.
-- Use `snapshot` only when you need fresh element refs (`[ref=eN]`) for targeting.
+**How to use `run_script` effectively**:
+- Use `run_script` for ALL browser interactions — it's much faster than individual tool calls.
+- A snapshot of interactive elements is **automatically appended** after every script, so you can immediately see the page state and use `[ref=eN]` refs with subsequent tools.
+- **Strategy**: Do the first action with a short `run_script` to learn the UI and selectors. Then batch all remaining repetitive work into a single `run_script` with a loop.
+- Use `page.wait(ms)` inside scripts for timing — don't use Bash `sleep`.
+
+**When to use granular tools instead**:
+- For 1-2 simple actions where a script is overkill (`click`, `type_text`, etc.).
+- Use `snapshot` when you need to refresh element refs outside of a script context.
 
 **Available tools**:
 - Navigation: `navigate`, `go_back`, `go_forward`, `reload`, `get_page_info`
