@@ -1622,7 +1622,7 @@ dependencies = [
 
 [[package]]
 name = "remix-browser"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -1631,6 +1631,7 @@ dependencies = [
  "chromiumoxide",
  "clap",
  "futures",
+ "regex",
  "rmcp",
  "schemars",
  "serde",

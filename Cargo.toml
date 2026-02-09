@@ -1,6 +1,6 @@
 [package]
 name = "remix-browser"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 description = "Blazing fast headless Chrome automation via CDP — no extension needed"
 
@@ -40,6 +40,7 @@ tempfile = "3"
 
 # JavaScript engine
 boa_engine = "0.21"
+regex = "1"
 
 [dev-dependencies]
 tokio-test = "0.4"

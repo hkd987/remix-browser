@@ -18,7 +18,7 @@ pub async fn find_elements(page: &Page, text: &str) -> Result<Vec<ElementInfo>> 
             const seen = new Set();
             while (walker.nextNode()) {{
                 const node = walker.currentNode;
-                if (node.textContent.trim().includes(target)) {{
+                if (node.textContent.trim().toLowerCase().includes(target.toLowerCase())) {{
                     const el = node.parentElement;
                     if (el && !seen.has(el)) {{
                         seen.add(el);

@@ -19,7 +19,7 @@ pub fn selector_to_js(selector: &str, selector_type: &SelectorType) -> Result<St
                 const target = {};
                 const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
                 while (walker.nextNode()) {{
-                    if (walker.currentNode.textContent.trim().includes(target)) {{
+                    if (walker.currentNode.textContent.trim().toLowerCase().includes(target.toLowerCase())) {{
                         return walker.currentNode.parentElement;
                     }}
                 }}
@@ -46,6 +46,9 @@ pub async fn hybrid_click(
     selector_type: &SelectorType,
     button: &str,
 ) -> Result<ClickResult> {
+    // Auto-wait for element to appear
+    crate::interaction::wait::wait_for_selector(page, selector, selector_type, 5000).await?;
+
     let selector_js = selector_to_js(selector, selector_type)?;
 
     // Step 1-4: Resolve element, scroll into view, check visibility, get coordinates

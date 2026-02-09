@@ -11,6 +11,9 @@ pub async fn type_text(
     text: &str,
     clear_first: bool,
 ) -> Result<()> {
+    // Auto-wait for element to appear
+    crate::interaction::wait::wait_for_selector(page, selector, selector_type, 5000).await?;
+
     let selector_js = crate::interaction::click::selector_to_js(selector, selector_type)?;
 
     let focus_js = format!(

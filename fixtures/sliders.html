@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Slider Test Page</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        .form-group { margin: 15px 0; }
+        label { display: block; margin-bottom: 5px; }
+        .custom-slider { width: 200px; height: 20px; background: #ddd; position: relative; cursor: pointer; }
+        .custom-slider .thumb { width: 20px; height: 20px; background: #007bff; position: absolute; }
+    </style>
+</head>
+<body>
+    <h1>Slider & Range Test</h1>
+
+    <!-- Native range input with label -->
+    <div class="form-group">
+        <label for="volume">Volume:</label>
+        <input type="range" id="volume" name="volume" min="0" max="100" value="75">
+    </div>
+
+    <!-- Native number input with min/max -->
+    <div class="form-group">
+        <label for="quantity">Quantity:</label>
+        <input type="number" id="quantity" name="quantity" min="1" max="99" value="5">
+    </div>
+
+    <!-- Custom ARIA slider (like Radix UI) -->
+    <div class="form-group">
+        <label id="rating-label">Rating:</label>
+        <div class="custom-slider" role="group" aria-labelledby="rating-label">
+            <span role="slider"
+                  aria-label="Rating"
+                  aria-valuenow="8"
+                  aria-valuemin="0"
+                  aria-valuemax="10"
+                  aria-orientation="horizontal"
+                  tabindex="0"
+                  id="rating-slider">
+            </span>
+        </div>
+    </div>
+
+    <!-- Custom ARIA slider without min/max -->
+    <div class="form-group">
+        <span role="slider"
+              aria-label="Progress"
+              aria-valuenow="42"
+              tabindex="0"
+              id="progress-slider">
+        </span>
+    </div>
+
+    <!-- Wrapping label pattern -->
+    <div class="form-group">
+        <label>
+            Brightness
+            <input type="range" id="brightness" min="0" max="255" value="128">
+        </label>
+    </div>
+
+    <!-- aria-labelledby pattern -->
+    <div class="form-group">
+        <span id="speed-label">Speed:</span>
+        <input type="range" id="speed" aria-labelledby="speed-label" min="0" max="200" value="60">
+    </div>
+
+    <!-- Number input without range (should show plain value) -->
+    <div class="form-group">
+        <label for="plain-num">Count:</label>
+        <input type="number" id="plain-num" value="7">
+    </div>
+
+    <!-- Password and email with labels (from earlier fix) -->
+    <div class="form-group">
+        <label for="user-email">Email:</label>
+        <input type="email" id="user-email" name="email" placeholder="Enter email">
+    </div>
+    <div class="form-group">
+        <label for="user-pass">Password:</label>
+        <input type="password" id="user-pass" name="password">
+    </div>
+
+    <!-- Bare inputs with no labels, no placeholders (name fallback) -->
+    <div class="form-group">
+        <input type="text" name="first_name">
+    </div>
+    <div class="form-group">
+        <input type="email" name="user_email">
+    </div>
+
+    <button type="button" id="submit-btn">Submit</button>
+</body>
+</html>

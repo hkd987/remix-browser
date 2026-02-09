@@ -16,7 +16,13 @@ Use these tools when the user wants to use Chrome, use the browser, browse the w
 take screenshots, interact with web pages, fill forms, scrape content, debug UIs, inspect the DOM, \
 run JavaScript in the browser, or monitor network requests. \
 Use `run_script` for ALL browser interactions — it is much faster than individual tool calls. \
-A snapshot is automatically appended after every script, so refs ([ref=eN]) are immediately available. \
+A compact ARIA-role snapshot is automatically appended after every tool (navigate, click, type_text, scroll, etc.), \
+so refs ([ref=eN]) are always available — no need to call snapshot separately. \
+Refs resolve inside run_script too: page.click('[ref=e0]') works after page.snapshot(). \
+Use page.fill(selector, value) to set any form control — text inputs, selects, checkboxes, sliders. \
+IMPORTANT: click, type, and fill auto-wait up to 5s for elements to appear. \
+Do NOT add page.wait() before interactions — it wastes time. \
+Only use page.wait() after navigate or when waiting for server-side effects (e.g. after form submit). \
 Strategy: do the first action with a short script to learn the UI, then batch remaining repetitive work \
 into a single run_script with a loop. Use granular tools (click, type_text, etc.) only for 1-2 simple follow-up actions.";
 
@@ -151,6 +157,38 @@ impl RemixBrowserServer {
             Err(err) => Err(McpError::internal_error(format!("{}", err), None)),
         }
     }
+
+    async fn auto_snapshot(&self) -> String {
+        match self.with_page(|page| async move {
+            let params = snapshot::SnapshotParams { selector: None };
+            snapshot::snapshot_with_refs(&page, &params).await
+        }).await {
+            Ok(snap) => {
+                self.set_snapshot_refs(snap.refs).await;
+                snap.text
+            }
+            Err(_) => "Snapshot unavailable".to_string(),
+        }
+    }
+
+    async fn normalize_selector_with_recovery(&self, selector: &str) -> Result<String, McpError> {
+        let result = {
+            let refs = self.snapshot_refs.lock().await;
+            resolve_selector(selector, &refs)
+        };
+        match result {
+            Ok(resolved) => Ok(resolved),
+            Err(ResolveRefError::NotFound(ref_id)) => {
+                // Auto-recovery: take fresh snapshot
+                let snap_text = self.auto_snapshot().await;
+                Err(McpError::internal_error(
+                    format!("Ref '{}' not found — page may have changed.\n\nCurrent page state:\n{}", ref_id, snap_text),
+                    None,
+                ))
+            }
+            Err(err) => Err(McpError::internal_error(format!("{}", err), None)),
+        }
+    }
 }
 
 #[tool(tool_box)]
@@ -176,33 +214,11 @@ impl RemixBrowserServer {
         #[tool(aggr)] params: navigation::NavigateParams,
     ) -> Result<CallToolResult, McpError> {
         self.clear_snapshot_refs().await;
-        let include_snapshot = params.include_snapshot;
         let result = self
-            .with_page(|page| async move {
-                let nav = navigation::navigate(&page, &params).await?;
-                if include_snapshot {
-                    let snap_params = snapshot::SnapshotParams { selector: None };
-                    let snap = snapshot::snapshot_with_refs(&page, &snap_params).await.ok();
-                    Ok((nav, snap))
-                } else {
-                    Ok((nav, None))
-                }
-            })
+            .with_page(|page| async move { navigation::navigate(&page, &params).await })
             .await?;
-
-        let snapshot_text = if include_snapshot {
-            match &result.1 {
-                Some(snap) => {
-                    self.set_snapshot_refs(snap.refs.clone()).await;
-                    Some(snap.text.as_str())
-                }
-                None => Some("Snapshot unavailable"),
-            }
-        } else {
-            None
-        };
-
-        Self::text_result(format_navigation_response(&result.0, snapshot_text))
+        let snap_text = self.auto_snapshot().await;
+        Self::text_result(format!("Navigated to {} — {}\n\nPage state:\n{}", result.title, result.url, snap_text))
     }
 
     #[tool(description = "Go back in browser history.")]
@@ -211,10 +227,8 @@ impl RemixBrowserServer {
         let result = self
             .with_page(|page| async move { navigation::go_back(&page).await })
             .await?;
-        Self::text_result(format!(
-            "Navigated back to {} — {}",
-            result.title, result.url
-        ))
+        let snap_text = self.auto_snapshot().await;
+        Self::text_result(format!("Navigated back to {} — {}\n\nPage state:\n{}", result.title, result.url, snap_text))
     }
 
     #[tool(description = "Go forward in browser history.")]
@@ -223,10 +237,8 @@ impl RemixBrowserServer {
         let result = self
             .with_page(|page| async move { navigation::go_forward(&page).await })
             .await?;
-        Self::text_result(format!(
-            "Navigated forward to {} — {}",
-            result.title, result.url
-        ))
+        let snap_text = self.auto_snapshot().await;
+        Self::text_result(format!("Navigated forward to {} — {}\n\nPage state:\n{}", result.title, result.url, snap_text))
     }
 
     #[tool(description = "Reload the current page.")]
@@ -235,7 +247,8 @@ impl RemixBrowserServer {
         let result = self
             .with_page(|page| async move { navigation::reload(&page).await })
             .await?;
-        Self::text_result(format!("Reloaded {} — {}", result.title, result.url))
+        let snap_text = self.auto_snapshot().await;
+        Self::text_result(format!("Reloaded {} — {}\n\nPage state:\n{}", result.title, result.url, snap_text))
     }
 
     #[tool(description = "Get current page URL, title, and viewport size.")]
@@ -270,7 +283,7 @@ impl RemixBrowserServer {
         #[tool(aggr)] params: dom::GetTextParams,
     ) -> Result<CallToolResult, McpError> {
         let mut params = params;
-        params.selector = self.normalize_selector(&params.selector).await?;
+        params.selector = self.normalize_selector_with_recovery(&params.selector).await?;
         let result = self
             .with_page(|page| async move { dom::get_text(&page, &params).await })
             .await?;
@@ -308,14 +321,15 @@ impl RemixBrowserServer {
         #[tool(aggr)] params: dom::WaitForParams,
     ) -> Result<CallToolResult, McpError> {
         let mut params = params;
-        params.selector = self.normalize_selector(&params.selector).await?;
+        params.selector = self.normalize_selector_with_recovery(&params.selector).await?;
         let found = self
             .with_page(|page| async move { dom::wait_for(&page, &params).await })
             .await?;
+        let snap_text = self.auto_snapshot().await;
         if found {
-            Self::text_result("Element found")
+            Self::text_result(format!("Element found\n\nPage state:\n{}", snap_text))
         } else {
-            Self::text_result("Element not found (timeout)")
+            Self::text_result(format!("Element not found (timeout)\n\nPage state:\n{}", snap_text))
         }
     }
 
@@ -329,11 +343,12 @@ impl RemixBrowserServer {
         #[tool(aggr)] params: interaction::ClickParams,
     ) -> Result<CallToolResult, McpError> {
         let mut params = params;
-        params.selector = self.normalize_selector(&params.selector).await?;
+        params.selector = self.normalize_selector_with_recovery(&params.selector).await?;
         let result = self
             .with_page(|page| async move { interaction::do_click(&page, &params).await })
             .await?;
-        Self::text_result(format!("Clicked element ({})", result.method_used))
+        let snap_text = self.auto_snapshot().await;
+        Self::text_result(format!("Clicked element ({})\n\nPage state:\n{}", result.method_used, snap_text))
     }
 
     #[tool(description = "Type text into an element.")]
@@ -342,10 +357,11 @@ impl RemixBrowserServer {
         #[tool(aggr)] params: interaction::TypeTextParams,
     ) -> Result<CallToolResult, McpError> {
         let mut params = params;
-        params.selector = self.normalize_selector(&params.selector).await?;
+        params.selector = self.normalize_selector_with_recovery(&params.selector).await?;
         self.with_page(|page| async move { interaction::type_text(&page, &params).await })
             .await?;
-        Self::text_result("Typed text into element")
+        let snap_text = self.auto_snapshot().await;
+        Self::text_result(format!("Typed text into element\n\nPage state:\n{}", snap_text))
     }
 
     #[tool(description = "Hover over an element.")]
@@ -354,10 +370,11 @@ impl RemixBrowserServer {
         #[tool(aggr)] params: interaction::HoverParams,
     ) -> Result<CallToolResult, McpError> {
         let mut params = params;
-        params.selector = self.normalize_selector(&params.selector).await?;
+        params.selector = self.normalize_selector_with_recovery(&params.selector).await?;
         self.with_page(|page| async move { interaction::hover(&page, &params).await })
             .await?;
-        Self::text_result("Hovered over element")
+        let snap_text = self.auto_snapshot().await;
+        Self::text_result(format!("Hovered over element\n\nPage state:\n{}", snap_text))
     }
 
     #[tool(description = "Select an option from a <select> element.")]
@@ -366,10 +383,25 @@ impl RemixBrowserServer {
         #[tool(aggr)] params: interaction::SelectOptionParams,
     ) -> Result<CallToolResult, McpError> {
         let mut params = params;
-        params.selector = self.normalize_selector(&params.selector).await?;
+        params.selector = self.normalize_selector_with_recovery(&params.selector).await?;
         self.with_page(|page| async move { interaction::select_option(&page, &params).await })
             .await?;
-        Self::text_result("Selected option")
+        let snap_text = self.auto_snapshot().await;
+        Self::text_result(format!("Selected option\n\nPage state:\n{}", snap_text))
+    }
+
+    #[tool(description = "Set the value of any form control (input, textarea, select, checkbox, slider). Smarter than type_text — auto-detects control type.")]
+    async fn fill(
+        &self,
+        #[tool(aggr)] params: interaction::FillParams,
+    ) -> Result<CallToolResult, McpError> {
+        let mut params = params;
+        params.selector = self.normalize_selector_with_recovery(&params.selector).await?;
+        let result = self
+            .with_page(|page| async move { interaction::fill(&page, &params).await })
+            .await?;
+        let snap_text = self.auto_snapshot().await;
+        Self::text_result(format!("{}\n\nPage state:\n{}", result, snap_text))
     }
 
     #[tool(description = "Press a keyboard key (Enter, Tab, ArrowDown, etc.).")]
@@ -380,7 +412,8 @@ impl RemixBrowserServer {
         let key = params.key.clone();
         self.with_page(|page| async move { interaction::press_key(&page, &params).await })
             .await?;
-        Self::text_result(format!("Pressed {}", key))
+        let snap_text = self.auto_snapshot().await;
+        Self::text_result(format!("Pressed {}\n\nPage state:\n{}", key, snap_text))
     }
 
     #[tool(description = "Scroll the page or scroll an element into view.")]
@@ -392,7 +425,8 @@ impl RemixBrowserServer {
         let amount = params.amount.unwrap_or(300);
         self.with_page(|page| async move { interaction::do_scroll(&page, &params).await })
             .await?;
-        Self::text_result(format!("Scrolled {} {}px", direction, amount))
+        let snap_text = self.auto_snapshot().await;
+        Self::text_result(format!("Scrolled {} {}px\n\nPage state:\n{}", direction, amount, snap_text))
     }
 
     // ── Visual ──────────────────────────────────────────────────────────
@@ -528,67 +562,58 @@ impl RemixBrowserServer {
         \n\nAvailable API:\n\
         - page.navigate(url), page.back(), page.forward(), page.reload()\n\
         - page.click(selector, {type:'text'}), page.type(selector, text, {clear:true})\n\
+        - page.fill(selector, value, {type:'text'}) — set any form control value (input, select, checkbox, range)\n\
         - page.press(key, {modifiers:['ctrl']}), page.hover(selector), page.select(selector, value)\n\
         - page.scroll(direction, {amount:500}), page.wait(ms), page.waitFor(selector, {timeout:5000})\n\
         - page.snapshot(), page.screenshot(), page.getText(selector), page.getHtml()\n\
         - page.findElements(selector), page.js(expr), console.log(...)\n\
         - page.readConsole(), page.enableNetwork(), page.getNetworkLog()\n\
+        - page.waitForNetworkIdle({timeout:30000, idle:500})\n\
+        \n\nRef selectors work inside scripts: after page.snapshot(), use [ref=eN] with click/type/getText/etc.\n\
+        [ref=eN] patterns also auto-resolve inside page.js() expressions.\n\
+        \n\nIMPORTANT: click, type, and fill auto-wait up to 5s for elements to appear. \
+        Do NOT add page.wait() before interactions. Only use page.wait() after navigate or for server-side effects.\
         \n\nExample — fill and submit a form, then batch-process a list:\n\
         page.navigate('https://example.com');\n\
-        page.type('#email', 'user@test.com');\n\
-        page.type('#password', 'secret');\n\
+        page.fill('#email', 'user@test.com');\n\
+        page.fill('#password', 'secret');\n\
         page.click('Submit', {type:'text'});\n\
-        page.wait(2000);\n\
+        page.wait(2000); // wait for server response after submit\n\
         \n\
         const items = ['item1', 'item2', 'item3'];\n\
         for (const item of items) {\n\
-          page.type('input[name=search]', item, {clear:true});\n\
-          page.wait(1000);\n\
+          page.fill('input[name=search]', item);\n\
           page.click(item, {type:'text'});\n\
-          page.wait(500);\n\
           page.click('Save', {type:'text'});\n\
-          page.wait(1000);\n\
         }"
     )]
     async fn run_script(
         &self,
         #[tool(aggr)] params: script::RunScriptParams,
     ) -> Result<CallToolResult, McpError> {
-        self.clear_snapshot_refs().await;
+        let current_refs = {
+            let r = self.snapshot_refs.lock().await;
+            if r.is_empty() { None } else { Some(r.clone()) }
+        };
         let console_log = self.console_log.clone();
         let network_log = self.network_log.clone();
         let (result, screenshot_contents, script_refs) = self
             .with_page(|page| async move {
-                script::run_script(&page, &params, &console_log, &network_log).await
+                script::run_script(&page, &params, &console_log, &network_log, current_refs).await
             })
             .await?;
 
-        // Auto-snapshot: capture page state after script completes
-        let auto_snap = self
-            .with_page(|page| async move {
-                let snap_params = snapshot::SnapshotParams { selector: None };
-                snapshot::snapshot_with_refs(&page, &snap_params).await
-            })
-            .await
-            .ok();
+        // Auto-snapshot after script (reuse helper)
+        let snap_text = self.auto_snapshot().await;
 
-        // Set refs from auto-snapshot (preferred) or from script's last page.snapshot() call
-        if let Some(ref snap) = auto_snap {
-            self.set_snapshot_refs(snap.refs.clone()).await;
-        } else if let Some(refs) = script_refs {
-            self.set_snapshot_refs(refs).await;
+        // If auto_snapshot didn't populate refs but script had refs, use those
+        if self.snapshot_refs.lock().await.is_empty() {
+            if let Some(refs) = script_refs {
+                self.set_snapshot_refs(refs).await;
+            }
         }
 
-        // Build output with auto-snapshot appended
-        let output_text = match &auto_snap {
-            Some(snap) => format!(
-                "{}\n\nPage state:\n{}",
-                result.format_output(),
-                snap.text
-            ),
-            None => result.format_output(),
-        };
-
+        let output_text = format!("{}\n\nPage state:\n{}", result.format_output(), snap_text);
         let mut contents: Vec<Content> = vec![Content::text(output_text)];
         contents.extend(screenshot_contents);
         Ok(CallToolResult::success(contents))

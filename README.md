@@ -17,6 +17,20 @@
 
 A Rust-native [MCP](https://modelcontextprotocol.io/) server that gives AI agents full control over a real Chrome browser through the Chrome DevTools Protocol. No browser extensions, no Puppeteer, no Node.js — just a single binary that speaks CDP.
 
+## Benchmarks
+
+Tested with Claude Sonnet 4 on the [game-tracker](https://github.com/SawyerHood/dev-browser-eval) benchmark (create account, login, add 5 games, view collection). Averaged over 3 runs.
+
+| Method | Time | Cost | Turns | Success |
+|--------|------|------|-------|---------|
+| **remix-browser** | **3m 35s** | **$0.83** | **23** | **100%** |
+| [Dev Browser](https://github.com/SawyerHood/dev-browser) | 3m 53s | $0.88 | 29 | 100% |
+| [Playwright MCP](https://github.com/anthropics/anthropic-quickstarts/tree/main/mcp-playwright) | 4m 31s | $1.45 | 51 | 100% |
+| [Playwright Skill](https://github.com/anthropics/anthropic-quickstarts/tree/main/mcp-playwright) | 8m 07s | $1.45 | 38 | 100% |
+| Claude Code Native Chrome | 12m 54s | $2.81 | 80 | 100% |
+
+_See [dev-browser-eval](https://github.com/SawyerHood/dev-browser-eval) for methodology._
+
 ## Why remix-browser?
 
 | | remix-browser | Extension-based MCPs | Puppeteer wrappers |
@@ -98,7 +112,8 @@ For the best experience, add this line to your project's `CLAUDE.md` (or `~/.cla
 When I ask to use Chrome or browser automation, use remix-browser MCP tools.
 For 1-2 simple actions, granular tools are fine.
 For workflows with 3+ actions, loops, or extraction, prefer `run_script`.
-Use `snapshot` only when I need fresh `[ref=eN]` element references.
+Use `fill` for setting any form control — it auto-detects input type (text, select, checkbox, range slider).
+Snapshots auto-append after every tool call, so [ref=eN] selectors are always fresh.
 ```
 
 This tells Claude to automatically reach for remix-browser whenever you mention browser tasks — no need to say "remix-browser" by name.
@@ -107,8 +122,9 @@ This tells Claude to automatically reach for remix-browser whenever you mention 
 
 - Use granular tools for short flows (`navigate` -> `click` -> `get_text`).
 - Use `run_script` for multi-step workflows, loops, and repeated extraction.
-- Use `snapshot` to generate compact element lists and stable `[ref=eN]` selectors.
-- `navigate` supports `include_snapshot` so callers can skip snapshot generation when they only need URL/title.
+- Use `fill` instead of `type_text` + `select_option` — it auto-detects the control type (text, select, checkbox, range slider, ARIA slider).
+- Snapshots auto-append after every tool call, so `[ref=eN]` selectors are always available without a separate `snapshot` call.
+- All interaction tools (`click`, `type_text`, `fill`) include **auto-wait** — they poll up to 5 seconds for the element to appear before acting, eliminating timing errors on dynamic pages.
 
 ## Tools
 
@@ -143,8 +159,9 @@ remix-browser exposes a broad toolset organized by category.
 
 | Tool | Description |
 |---|---|
-| `click` | Click elements using a **hybrid strategy** — tries real mouse events first, falls back to JS dispatch if the element is obscured. Reports which method was used. |
-| `type_text` | Type into input fields. Optionally clear existing content first. |
+| `click` | Click elements using a **hybrid strategy** — tries real mouse events first, falls back to JS dispatch if the element is obscured. Auto-waits up to 5s for the element to appear. |
+| `type_text` | Type into input fields. Optionally clear existing content first. Auto-waits up to 5s for the element to appear. |
+| `fill` | **Smart form control setter** — auto-detects input type and sets the value appropriately. Works with text inputs, textareas, `<select>`, checkboxes, `input[type=range]` sliders, and ARIA `role="slider"` elements. |
 | `hover` | Hover over elements (fires `mouseenter`, `mouseover`, `mousemove`). |
 | `select_option` | Select an option in a `<select>` dropdown by value. |
 | `press_key` | Press keyboard keys (`Enter`, `Tab`, `ArrowDown`, etc.) with optional modifiers. |
@@ -182,7 +199,7 @@ remix-browser exposes a broad toolset organized by category.
 
 | Tool | Description |
 |---|---|
-| `run_script` | Execute multi-step browser automation in one tool call with a synchronous `page.*` API. Best for loops, repeated actions, and extraction workflows. |
+| `run_script` | Execute multi-step browser automation in one tool call with a synchronous `page.*` API. Includes `page.fill()`, `page.click()`, `page.type()`, `page.js()`, and more. `[ref=eN]` selectors auto-resolve inside `page.js()` expressions. Best for loops, repeated actions, and extraction workflows. |
 
 ## Selector Types
 
@@ -202,13 +219,14 @@ Most browser automation tools fail on modern JS-heavy sites. Dropdown menus, ove
 
 remix-browser uses a **hybrid click strategy**:
 
-1. Scroll the element into view
-2. Check visibility and whether it's obscured by other elements
-3. Dispatch real mouse events (`mousedown` -> `mouseup` -> `click`) at the element's coordinates
-4. If the element is obscured (e.g., behind an overlay), automatically fall back to JavaScript `click()`
-5. Report which method was used so you know exactly what happened
+1. **Auto-wait** up to 5 seconds for the element to appear in the DOM
+2. Scroll the element into view
+3. Check visibility and whether it's obscured by other elements
+4. Dispatch real mouse events (`mousedown` -> `mouseup` -> `click`) at the element's coordinates
+5. If the element is obscured (e.g., behind an overlay), automatically fall back to JavaScript `click()`
+6. Report which method was used so you know exactly what happened
 
-This means clicks **just work** — even on sites with complex overlays, sticky headers, and dynamic menus.
+This means clicks **just work** — even on sites with complex overlays, sticky headers, dynamic menus, and late-loading elements.
 
 ## Configuration
 
@@ -246,7 +264,7 @@ src/
 ├── tools/
 │   ├── navigation.rs      # navigate, go_back, go_forward, reload
 │   ├── dom.rs             # find_elements, get_text, get_html, wait_for
-│   ├── interaction.rs     # click, type_text, hover, select_option, press_key, scroll
+│   ├── interaction.rs     # click, type_text, fill, hover, select_option, press_key, scroll
 │   ├── screenshot.rs      # screenshot capture
 │   ├── snapshot.rs        # compact interactive tree + ref generation
 │   ├── javascript.rs      # execute_js, console log capture
@@ -256,11 +274,14 @@ src/
 ├── interaction/
 │   ├── click.rs           # Hybrid click strategy implementation
 │   ├── keyboard.rs        # Key press & text input
-│   └── scroll.rs          # Scroll logic
+│   ├── scroll.rs          # Scroll logic
+│   └── wait.rs            # Auto-wait polling for element existence
 └── selectors/
+    ├── mod.rs             # Selector normalization & :has-text() conversion
     ├── css.rs             # CSS selector resolution
     ├── text.rs            # Text content matching via TreeWalker
-    └── xpath.rs           # XPath evaluation
+    ├── xpath.rs           # XPath evaluation
+    └── ref.rs             # [ref=eN] snapshot reference resolution
 ```
 
 Built on:
@@ -271,8 +292,8 @@ Built on:
 ## Testing
 
 ```bash
-# Run all 16 integration tests (uses real headless Chrome)
-cargo test --test-threads=4
+# Run all 50 integration tests (uses real headless Chrome)
+cargo test -- --test-threads=4
 
 # Run a specific test
 cargo test test_navigate

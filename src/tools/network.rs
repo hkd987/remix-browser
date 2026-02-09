@@ -6,6 +6,7 @@ use chromiumoxide::page::Page;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -22,11 +23,12 @@ pub struct NetworkEntry {
 }
 
 /// Shared network log storage.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct NetworkLog {
     pub entries: Arc<Mutex<Vec<NetworkEntry>>>,
     pub enabled: Arc<Mutex<bool>>,
     pub patterns: Arc<Mutex<Vec<String>>>,
+    pub pending_count: Arc<AtomicU32>,
 }
 
 impl NetworkLog {
@@ -35,7 +37,12 @@ impl NetworkLog {
             entries: Arc::new(Mutex::new(Vec::new())),
             enabled: Arc::new(Mutex::new(false)),
             patterns: Arc::new(Mutex::new(Vec::new())),
+            pending_count: Arc::new(AtomicU32::new(0)),
         }
+    }
+
+    pub fn pending_requests(&self) -> u32 {
+        self.pending_count.load(Ordering::Relaxed)
     }
 
     pub async fn enable(&self, patterns: Option<Vec<String>>) {
@@ -176,19 +183,24 @@ pub async fn start_listening(page: &Page, network_log: NetworkLog) -> Result<()>
     // Spawn background task: collect requests in a HashMap keyed by request_id,
     // then when a response arrives, merge into a NetworkEntry and add to the log
     let log = network_log.clone();
+    let pending_counter = network_log.pending_count.clone();
     tokio::spawn(async move {
-        let mut pending: HashMap<String, Arc<EventRequestWillBeSent>> = HashMap::new();
+        let mut pending_map: HashMap<String, Arc<EventRequestWillBeSent>> = HashMap::new();
 
         loop {
             tokio::select! {
                 Some(req) = requests.next() => {
-                    pending.insert(req.request_id.inner().to_string(), req);
+                    pending_counter.fetch_add(1, Ordering::Relaxed);
+                    pending_map.insert(req.request_id.inner().to_string(), req);
                 }
                 Some(resp) = responses.next() => {
                     let request_id = resp.request_id.inner().to_string();
-                    let method = pending.get(&request_id)
+                    let method = pending_map.get(&request_id)
                         .map(|r| r.request.method.clone())
                         .unwrap_or_default();
+                    if pending_map.remove(&request_id).is_some() {
+                        pending_counter.fetch_sub(1, Ordering::Relaxed);
+                    }
                     let entry = NetworkEntry {
                         url: resp.response.url.clone(),
                         method,
@@ -198,7 +210,6 @@ pub async fn start_listening(page: &Page, network_log: NetworkLog) -> Result<()>
                         timing_ms: 0.0,
                     };
                     log.add(entry).await;
-                    pending.remove(&request_id);
                 }
                 else => break,
             }

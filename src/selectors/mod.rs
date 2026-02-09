@@ -67,7 +67,7 @@ pub async fn resolve_selector(
                         null
                     );
                     while (walker.nextNode()) {{
-                        if (walker.currentNode.textContent.trim().includes(target)) {{
+                        if (walker.currentNode.textContent.trim().toLowerCase().includes(target.toLowerCase())) {{
                             return walker.currentNode.parentElement;
                         }}
                     }}
@@ -114,4 +114,65 @@ pub fn element_info_js() -> &'static str {
             attributes: attrs
         };
     }"#
+}
+
+/// Detect Playwright-style :has-text("...") and convert to text selector.
+pub fn normalize_selector_type(selector: &str, selector_type: SelectorType) -> (String, SelectorType) {
+    if matches!(selector_type, SelectorType::Css) {
+        if let Some(start) = selector.find(":has-text(") {
+            let after = &selector[start + ":has-text(".len()..];
+            let (quote, rest) = if after.starts_with('"') {
+                ('"', &after[1..])
+            } else if after.starts_with('\'') {
+                ('\'', &after[1..])
+            } else {
+                return (selector.to_string(), selector_type);
+            };
+            if let Some(end) = rest.find(quote) {
+                let text = &rest[..end];
+                return (text.to_string(), SelectorType::Text);
+            }
+        }
+    }
+    (selector.to_string(), selector_type)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_has_text_double_quotes() {
+        let (sel, st) = normalize_selector_type(r#"button:has-text("Submit")"#, SelectorType::Css);
+        assert_eq!(sel, "Submit");
+        assert!(matches!(st, SelectorType::Text));
+    }
+
+    #[test]
+    fn test_normalize_has_text_single_quotes() {
+        let (sel, st) = normalize_selector_type("button:has-text('Create Account')", SelectorType::Css);
+        assert_eq!(sel, "Create Account");
+        assert!(matches!(st, SelectorType::Text));
+    }
+
+    #[test]
+    fn test_normalize_plain_css_unchanged() {
+        let (sel, st) = normalize_selector_type("#submit-btn", SelectorType::Css);
+        assert_eq!(sel, "#submit-btn");
+        assert!(matches!(st, SelectorType::Css));
+    }
+
+    #[test]
+    fn test_normalize_text_type_unchanged() {
+        let (sel, st) = normalize_selector_type(r#"button:has-text("Submit")"#, SelectorType::Text);
+        assert_eq!(sel, r#"button:has-text("Submit")"#);
+        assert!(matches!(st, SelectorType::Text));
+    }
+
+    #[test]
+    fn test_normalize_bare_has_text() {
+        let (sel, st) = normalize_selector_type(r#":has-text("Login")"#, SelectorType::Css);
+        assert_eq!(sel, "Login");
+        assert!(matches!(st, SelectorType::Text));
+    }
 }

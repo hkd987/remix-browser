@@ -571,20 +571,15 @@ async fn test_snapshot_form_page() {
         .await
         .unwrap();
 
-    // Should contain form elements
+    // Should contain form elements (ARIA roles)
     assert!(
-        result.contains("input"),
-        "Snapshot should contain input elements, got:\n{}",
+        result.contains("textbox"),
+        "Snapshot should contain textbox elements, got:\n{}",
         result
     );
     assert!(
-        result.contains("select"),
-        "Snapshot should contain select element, got:\n{}",
-        result
-    );
-    assert!(
-        result.contains("textarea"),
-        "Snapshot should contain textarea element, got:\n{}",
+        result.contains("combobox"),
+        "Snapshot should contain combobox element, got:\n{}",
         result
     );
     assert!(
@@ -600,11 +595,7 @@ async fn test_snapshot_form_page() {
         result.len()
     );
 
-    // Should have indexed lines
-    assert!(
-        result.contains("[0]"),
-        "Snapshot should have indexed elements"
-    );
+    // Should have ref tokens on interactive elements
     assert!(
         result.contains("[ref=e"),
         "Snapshot should include ref tokens"
@@ -625,15 +616,15 @@ async fn test_snapshot_basic_page() {
         .await
         .unwrap();
 
-    // Should find the heading and link
+    // Should find the heading and link (ARIA roles)
     assert!(
-        result.contains("h1"),
-        "Snapshot should contain h1 heading, got:\n{}",
+        result.contains("heading"),
+        "Snapshot should contain heading role, got:\n{}",
         result
     );
     assert!(
-        result.contains("a "),
-        "Snapshot should contain link element, got:\n{}",
+        result.contains("link"),
+        "Snapshot should contain link role, got:\n{}",
         result
     );
     assert!(
@@ -664,14 +655,10 @@ async fn test_snapshot_scoped_selector() {
         .await
         .unwrap();
 
-    // Should contain form elements but be scoped
+    // Should contain form elements but be scoped (ARIA roles)
     assert!(
-        result.contains("input"),
-        "Scoped snapshot should contain inputs"
-    );
-    assert!(
-        result.contains("[0]"),
-        "Scoped snapshot should have indexed elements"
+        result.contains("textbox"),
+        "Scoped snapshot should contain textbox elements"
     );
     assert!(
         result.contains("[ref=e"),
@@ -695,21 +682,22 @@ async fn test_ref_selector_resolution_for_get_text_and_wait_for() {
     .await
     .unwrap();
 
-    let title_ref = snap
+    // With ARIA format, only interactive elements get refs. Use #test-link (a link).
+    let link_ref = snap
         .refs
         .iter()
-        .find(|(_, selector)| selector.as_str() == "#title")
+        .find(|(_, selector)| selector.as_str() == "#test-link")
         .map(|(ref_id, _)| ref_id.clone())
-        .expect("expected #title ref in snapshot");
+        .expect("expected #test-link ref in snapshot");
 
-    let resolved = resolve_ref_selector(&format!("ref={}", title_ref), &snap.refs)
+    let resolved = resolve_ref_selector(&format!("ref={}", link_ref), &snap.refs)
         .expect("ref selector should resolve");
-    assert_eq!(resolved, "#title");
+    assert_eq!(resolved, "#test-link");
 
     let css_text = remix_browser::tools::dom::get_text(
         &page,
         &remix_browser::tools::dom::GetTextParams {
-            selector: "#title".to_string(),
+            selector: "#test-link".to_string(),
             selector_type: Some(remix_browser::selectors::SelectorType::Css),
         },
     )
@@ -731,7 +719,7 @@ async fn test_ref_selector_resolution_for_get_text_and_wait_for() {
     let css_wait = remix_browser::tools::dom::wait_for(
         &page,
         &remix_browser::tools::dom::WaitForParams {
-            selector: "#title".to_string(),
+            selector: "#test-link".to_string(),
             selector_type: Some(remix_browser::selectors::SelectorType::Css),
             timeout_ms: Some(1000),
             state: Some("visible".to_string()),
@@ -918,7 +906,7 @@ async fn test_run_script_navigate_and_snapshot() {
 
     let params = remix_browser::tools::script::RunScriptParams { script };
     let (result, _screenshots, _refs) =
-        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log)
+        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log, None)
             .await
             .unwrap();
 
@@ -928,8 +916,8 @@ async fn test_run_script_navigate_and_snapshot() {
         result.error
     );
     assert!(
-        result.output.contains("h1"),
-        "Output should contain snapshot with h1, got:\n{}",
+        result.output.contains("heading"),
+        "Output should contain snapshot with heading role, got:\n{}",
         result.output
     );
     assert!(
@@ -958,7 +946,7 @@ async fn test_run_script_form_fill() {
 
     let params = remix_browser::tools::script::RunScriptParams { script };
     let (result, _screenshots, _refs) =
-        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log)
+        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log, None)
             .await
             .unwrap();
 
@@ -994,7 +982,7 @@ async fn test_run_script_loop() {
 
     let params = remix_browser::tools::script::RunScriptParams { script };
     let (result, _screenshots, _refs) =
-        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log)
+        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log, None)
             .await
             .unwrap();
 
@@ -1036,7 +1024,7 @@ async fn test_run_script_error_handling() {
 
     let params = remix_browser::tools::script::RunScriptParams { script };
     let (result, _screenshots, _refs) =
-        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log)
+        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log, None)
             .await
             .unwrap();
 
@@ -1069,7 +1057,7 @@ async fn test_run_script_screenshot() {
 
     let params = remix_browser::tools::script::RunScriptParams { script };
     let (result, screenshots, _refs) =
-        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log)
+        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log, None)
             .await
             .unwrap();
 
@@ -1098,7 +1086,7 @@ async fn test_run_script_console_log() {
 
     let params = remix_browser::tools::script::RunScriptParams { script };
     let (result, _screenshots, _refs) =
-        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log)
+        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log, None)
             .await
             .unwrap();
 
@@ -1133,7 +1121,7 @@ async fn test_run_script_js_execution() {
 
     let params = remix_browser::tools::script::RunScriptParams { script };
     let (result, _screenshots, _refs) =
-        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log)
+        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log, None)
             .await
             .unwrap();
 
@@ -1166,7 +1154,7 @@ async fn test_run_script_snapshot_persists_refs() {
 
     let params = remix_browser::tools::script::RunScriptParams { script };
     let (result, _screenshots, refs) =
-        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log)
+        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log, None)
             .await
             .unwrap();
 
@@ -1189,4 +1177,759 @@ async fn test_run_script_snapshot_persists_refs() {
         "Refs should contain e0, got keys: {:?}",
         refs.keys().collect::<Vec<_>>()
     );
+}
+
+// ── Snapshot Label & Slider Tests ──────────────────────────────────────
+
+#[tokio::test]
+async fn test_snapshot_label_for_resolution() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser
+        .new_page(fixture_url("form.html").as_str())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let params = remix_browser::tools::snapshot::SnapshotParams { selector: None };
+    let result = remix_browser::tools::snapshot::snapshot(&page, &params)
+        .await
+        .unwrap();
+
+    // Labels should resolve via <label for="id"> association
+    assert!(
+        result.contains("\"Name:\""),
+        "Name input should have label 'Name:', got:\n{}",
+        result
+    );
+    assert!(
+        result.contains("\"Email:\""),
+        "Email input should have label 'Email:', got:\n{}",
+        result
+    );
+    assert!(
+        result.contains("\"Message:\""),
+        "Textarea should have label 'Message:', got:\n{}",
+        result
+    );
+    assert!(
+        result.contains("\"Favorite Color:\""),
+        "Select should have label 'Favorite Color:', got:\n{}",
+        result
+    );
+
+    // Email input should show type annotation
+    assert!(
+        result.contains("type=email"),
+        "Email input should show type=email, got:\n{}",
+        result
+    );
+}
+
+#[tokio::test]
+async fn test_snapshot_native_range_input() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser
+        .new_page(fixture_url("sliders.html").as_str())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let params = remix_browser::tools::snapshot::SnapshotParams { selector: None };
+    let result = remix_browser::tools::snapshot::snapshot(&page, &params)
+        .await
+        .unwrap();
+
+    // Native <input type="range"> should show value with range
+    assert!(
+        result.contains("\"Volume:\""),
+        "Range input should have label 'Volume:', got:\n{}",
+        result
+    );
+    assert!(
+        result.contains("value=75 [0-100]"),
+        "Range input should show value=75 [0-100], got:\n{}",
+        result
+    );
+
+    // Native <input type="number"> with min/max should show range
+    assert!(
+        result.contains("\"Quantity:\""),
+        "Number input should have label 'Quantity:', got:\n{}",
+        result
+    );
+    assert!(
+        result.contains("value=5 [1-99]"),
+        "Number input should show value=5 [1-99], got:\n{}",
+        result
+    );
+}
+
+#[tokio::test]
+async fn test_snapshot_custom_aria_slider() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser
+        .new_page(fixture_url("sliders.html").as_str())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let params = remix_browser::tools::snapshot::SnapshotParams { selector: None };
+    let result = remix_browser::tools::snapshot::snapshot(&page, &params)
+        .await
+        .unwrap();
+
+    // Custom ARIA slider with aria-valuenow/min/max
+    assert!(
+        result.contains("slider \"Rating\" value=8 [0-10]"),
+        "Custom slider should show value=8 [0-10], got:\n{}",
+        result
+    );
+
+    // Custom ARIA slider without min/max
+    assert!(
+        result.contains("slider \"Progress\" value=42"),
+        "Slider without range should show value=42, got:\n{}",
+        result
+    );
+
+    // Both sliders should have refs (interactive)
+    let snap = remix_browser::tools::snapshot::snapshot_with_refs(
+        &page,
+        &remix_browser::tools::snapshot::SnapshotParams { selector: None },
+    )
+    .await
+    .unwrap();
+
+    let has_rating_ref = snap
+        .refs
+        .iter()
+        .any(|(_, selector)| selector.as_str() == "#rating-slider");
+    assert!(
+        has_rating_ref,
+        "Custom ARIA slider should have a ref, refs: {:?}",
+        snap.refs
+    );
+}
+
+#[tokio::test]
+async fn test_snapshot_wrapping_label_and_aria_labelledby() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser
+        .new_page(fixture_url("sliders.html").as_str())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let params = remix_browser::tools::snapshot::SnapshotParams { selector: None };
+    let result = remix_browser::tools::snapshot::snapshot(&page, &params)
+        .await
+        .unwrap();
+
+    // Wrapping <label> pattern: <label>Brightness <input type="range"></label>
+    assert!(
+        result.contains("\"Brightness\""),
+        "Wrapping label should resolve to 'Brightness', got:\n{}",
+        result
+    );
+
+    // aria-labelledby pattern
+    assert!(
+        result.contains("\"Speed:\""),
+        "aria-labelledby should resolve to 'Speed:', got:\n{}",
+        result
+    );
+}
+
+#[tokio::test]
+async fn test_snapshot_input_type_annotations() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser
+        .new_page(fixture_url("sliders.html").as_str())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let params = remix_browser::tools::snapshot::SnapshotParams { selector: None };
+    let result = remix_browser::tools::snapshot::snapshot(&page, &params)
+        .await
+        .unwrap();
+
+    // type=email and type=password should be annotated
+    assert!(
+        result.contains("type=email"),
+        "Email input should show type=email, got:\n{}",
+        result
+    );
+    assert!(
+        result.contains("type=password"),
+        "Password input should show type=password, got:\n{}",
+        result
+    );
+
+    // type=range and type=number should be annotated
+    assert!(
+        result.contains("type=range"),
+        "Range input should show type=range, got:\n{}",
+        result
+    );
+    assert!(
+        result.contains("type=number"),
+        "Number input should show type=number, got:\n{}",
+        result
+    );
+
+    // Plain number without min/max should show plain value
+    assert!(
+        result.contains("\"Count:\""),
+        "Plain number input should have label 'Count:', got:\n{}",
+        result
+    );
+}
+
+#[tokio::test]
+async fn test_snapshot_name_attribute_fallback() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser
+        .new_page(fixture_url("sliders.html").as_str())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let params = remix_browser::tools::snapshot::SnapshotParams { selector: None };
+    let result = remix_browser::tools::snapshot::snapshot(&page, &params)
+        .await
+        .unwrap();
+
+    // Bare input with no label/placeholder should fall back to name attribute
+    // name="first_name" should become "first name"
+    assert!(
+        result.contains("\"first name\""),
+        "Bare input should fall back to name attr 'first name', got:\n{}",
+        result
+    );
+
+    // name="user_email" should become "user email"
+    assert!(
+        result.contains("\"user email\""),
+        "Bare email input should fall back to name attr 'user email', got:\n{}",
+        result
+    );
+}
+
+// ── run_script page.url() and page.title() Tests ──────────────────────
+
+#[tokio::test]
+async fn test_run_script_url_and_title() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser.new_page("about:blank").await.unwrap();
+
+    let console_log = remix_browser::tools::javascript::ConsoleLog::new();
+    let network_log = remix_browser::tools::network::NetworkLog::new();
+
+    let url = fixture_url("basic.html");
+    let script = format!(
+        r#"page.navigate('{}');
+        console.log('URL: ' + page.url());
+        console.log('Title: ' + page.title());"#,
+        url
+    );
+
+    let params = remix_browser::tools::script::RunScriptParams { script };
+    let (result, _screenshots, _refs) =
+        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log, None)
+            .await
+            .unwrap();
+
+    assert!(
+        result.success,
+        "Script should succeed, error: {:?}",
+        result.error
+    );
+    assert!(
+        result.output.contains("basic.html"),
+        "page.url() should return URL containing basic.html, got:\n{}",
+        result.output
+    );
+    assert!(
+        result.output.contains("Basic Test Page"),
+        "page.title() should return 'Basic Test Page', got:\n{}",
+        result.output
+    );
+}
+
+// ── Case-Insensitive Text Click Test ───────────────────────────────────
+
+#[tokio::test]
+async fn test_case_insensitive_text_click() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser
+        .new_page(fixture_url("basic.html").as_str())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // The link text is "Click me" — search with uppercase "CLICK ME"
+    let result = remix_browser::tools::interaction::do_click(
+        &page,
+        &remix_browser::tools::interaction::ClickParams {
+            selector: "CLICK ME".to_string(),
+            selector_type: Some(remix_browser::selectors::SelectorType::Text),
+            button: None,
+        },
+    )
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "Case-insensitive text click should succeed, error: {:?}",
+        result.err()
+    );
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let click_result: String = page
+        .evaluate(r#"document.getElementById('click-result').textContent"#)
+        .await
+        .unwrap()
+        .into_value()
+        .unwrap();
+
+    assert_eq!(
+        click_result, "Link was clicked!",
+        "Click with case-insensitive text selector should work"
+    );
+}
+
+// ── Preloaded Refs Test ─────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_run_script_preloaded_refs() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser.new_page("about:blank").await.unwrap();
+
+    let console_log = remix_browser::tools::javascript::ConsoleLog::new();
+    let network_log = remix_browser::tools::network::NetworkLog::new();
+
+    let url = fixture_url("basic.html");
+    page.goto(&url).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Take a snapshot to get refs
+    let snap = remix_browser::tools::snapshot::snapshot_with_refs(
+        &page,
+        &remix_browser::tools::snapshot::SnapshotParams { selector: None },
+    )
+    .await
+    .unwrap();
+
+    assert!(!snap.refs.is_empty(), "Snapshot should have refs");
+
+    // Find the ref for #test-link
+    let link_ref = snap
+        .refs
+        .iter()
+        .find(|(_, selector)| selector.as_str() == "#test-link")
+        .map(|(ref_id, _)| ref_id.clone())
+        .expect("expected #test-link ref");
+
+    // Run script using pre-loaded refs WITHOUT calling page.snapshot() in the script
+    let script = format!(
+        r#"page.click('[ref={}]');
+        console.log('Clicked via preloaded ref');"#,
+        link_ref
+    );
+
+    let params = remix_browser::tools::script::RunScriptParams { script };
+    let (result, _screenshots, _refs) =
+        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log, Some(snap.refs))
+            .await
+            .unwrap();
+
+    assert!(
+        result.success,
+        "Script should succeed with preloaded refs, error: {:?}",
+        result.error
+    );
+    assert!(
+        result.output.contains("Clicked via preloaded ref"),
+        "Should have clicked using preloaded ref, got:\n{}",
+        result.output
+    );
+}
+
+// ── :has-text() Auto-Conversion Tests ────────────────────────────────────
+
+#[tokio::test]
+async fn test_has_text_selector_auto_conversion() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser
+        .new_page(fixture_url("basic.html").as_str())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Use Playwright-style :has-text() which should auto-convert to text selector
+    let result = remix_browser::tools::interaction::do_click(
+        &page,
+        &remix_browser::tools::interaction::ClickParams {
+            selector: r#"a:has-text("Click me")"#.to_string(),
+            selector_type: Some(remix_browser::selectors::SelectorType::Css),
+            button: None,
+        },
+    )
+    .await;
+
+    assert!(
+        result.is_ok(),
+        ":has-text() auto-conversion should succeed, error: {:?}",
+        result.err()
+    );
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let click_result: String = page
+        .evaluate(r#"document.getElementById('click-result').textContent"#)
+        .await
+        .unwrap()
+        .into_value()
+        .unwrap();
+
+    assert_eq!(
+        click_result, "Link was clicked!",
+        ":has-text() auto-converted click should work"
+    );
+}
+
+// ── DOM Element Error Tests ─────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_execute_js_dom_element_returns_helpful_error() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser
+        .new_page(fixture_url("basic.html").as_str())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let params = remix_browser::tools::javascript::ExecuteJsParams {
+        expression: "document.querySelector('h1')".to_string(),
+    };
+
+    let result = remix_browser::tools::javascript::execute_js(&page, &params).await;
+    assert!(result.is_err(), "querySelector returning DOM element should error");
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("DOM element"),
+        "Error should mention DOM element, got: {}",
+        err_msg
+    );
+    assert!(
+        err_msg.contains(".textContent"),
+        "Error should suggest .textContent, got: {}",
+        err_msg
+    );
+}
+
+// ── Auto-Wait Tests ─────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_auto_wait_click() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser
+        .new_page(fixture_url("basic.html").as_str())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Inject a delayed element via JS (appears after 1s)
+    let _: serde_json::Value = page
+        .evaluate(
+            r#"setTimeout(() => {
+                const btn = document.createElement('button');
+                btn.id = 'delayed-btn';
+                btn.textContent = 'Delayed Button';
+                btn.onclick = () => { document.title = 'Clicked!'; };
+                document.body.appendChild(btn);
+            }, 1000)"#,
+        )
+        .await
+        .unwrap()
+        .into_value()
+        .unwrap_or_default();
+
+    // Click immediately — auto-wait should handle the 1s delay
+    let result = remix_browser::tools::interaction::do_click(
+        &page,
+        &remix_browser::tools::interaction::ClickParams {
+            selector: "#delayed-btn".to_string(),
+            selector_type: Some(remix_browser::selectors::SelectorType::Css),
+            button: None,
+        },
+    )
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "Auto-wait click should succeed on delayed element, error: {:?}",
+        result.err()
+    );
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let title = page.get_title().await.unwrap().unwrap_or_default();
+    assert_eq!(title, "Clicked!", "Click should have fired on delayed element");
+}
+
+#[tokio::test]
+async fn test_auto_wait_type() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser
+        .new_page(fixture_url("basic.html").as_str())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Inject a delayed input (appears after 1s)
+    let _: serde_json::Value = page
+        .evaluate(
+            r#"setTimeout(() => {
+                const input = document.createElement('input');
+                input.id = 'delayed-input';
+                input.type = 'text';
+                document.body.appendChild(input);
+            }, 1000)"#,
+        )
+        .await
+        .unwrap()
+        .into_value()
+        .unwrap_or_default();
+
+    // Type immediately — auto-wait should handle the 1s delay
+    let result = remix_browser::tools::interaction::type_text(
+        &page,
+        &remix_browser::tools::interaction::TypeTextParams {
+            selector: "#delayed-input".to_string(),
+            text: "Hello Auto-Wait".to_string(),
+            selector_type: Some(remix_browser::selectors::SelectorType::Css),
+            clear_first: None,
+        },
+    )
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "Auto-wait type should succeed on delayed element, error: {:?}",
+        result.err()
+    );
+
+    let value: String = page
+        .evaluate("document.getElementById('delayed-input').value")
+        .await
+        .unwrap()
+        .into_value()
+        .unwrap();
+    assert_eq!(value, "Hello Auto-Wait");
+}
+
+// ── Fill Tests ──────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_fill_text_input() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser
+        .new_page(fixture_url("form.html").as_str())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let result = remix_browser::tools::interaction::fill(
+        &page,
+        &remix_browser::tools::interaction::FillParams {
+            selector: "#name".to_string(),
+            value: "Fill Test User".to_string(),
+            selector_type: Some(remix_browser::selectors::SelectorType::Css),
+        },
+    )
+    .await;
+
+    assert!(result.is_ok(), "fill() text input should succeed, error: {:?}", result.err());
+
+    let value: String = page
+        .evaluate("document.getElementById('name').value")
+        .await
+        .unwrap()
+        .into_value()
+        .unwrap();
+    assert_eq!(value, "Fill Test User");
+}
+
+#[tokio::test]
+async fn test_fill_checkbox() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser
+        .new_page(fixture_url("basic.html").as_str())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Inject a checkbox
+    let _: serde_json::Value = page
+        .evaluate(
+            r#"(() => {
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.id = 'test-checkbox';
+                document.body.appendChild(cb);
+            })()"#,
+        )
+        .await
+        .unwrap()
+        .into_value()
+        .unwrap_or_default();
+
+    // Fill with "true" — should check it
+    let result = remix_browser::tools::interaction::fill(
+        &page,
+        &remix_browser::tools::interaction::FillParams {
+            selector: "#test-checkbox".to_string(),
+            value: "true".to_string(),
+            selector_type: Some(remix_browser::selectors::SelectorType::Css),
+        },
+    )
+    .await;
+
+    assert!(result.is_ok(), "fill() checkbox should succeed, error: {:?}", result.err());
+
+    let checked: bool = page
+        .evaluate("document.getElementById('test-checkbox').checked")
+        .await
+        .unwrap()
+        .into_value()
+        .unwrap();
+    assert!(checked, "Checkbox should be checked after fill('true')");
+
+    // Fill with "false" — should uncheck it
+    remix_browser::tools::interaction::fill(
+        &page,
+        &remix_browser::tools::interaction::FillParams {
+            selector: "#test-checkbox".to_string(),
+            value: "false".to_string(),
+            selector_type: Some(remix_browser::selectors::SelectorType::Css),
+        },
+    )
+    .await
+    .unwrap();
+
+    let checked: bool = page
+        .evaluate("document.getElementById('test-checkbox').checked")
+        .await
+        .unwrap()
+        .into_value()
+        .unwrap();
+    assert!(!checked, "Checkbox should be unchecked after fill('false')");
+}
+
+#[tokio::test]
+async fn test_fill_range_slider() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser
+        .new_page(fixture_url("sliders.html").as_str())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let result = remix_browser::tools::interaction::fill(
+        &page,
+        &remix_browser::tools::interaction::FillParams {
+            selector: "#volume".to_string(),
+            value: "42".to_string(),
+            selector_type: Some(remix_browser::selectors::SelectorType::Css),
+        },
+    )
+    .await;
+
+    assert!(result.is_ok(), "fill() range should succeed, error: {:?}", result.err());
+
+    let value: String = page
+        .evaluate("document.getElementById('volume').value")
+        .await
+        .unwrap()
+        .into_value()
+        .unwrap();
+    assert_eq!(value, "42", "Range slider value should be 42");
+}
+
+#[tokio::test]
+async fn test_fill_select() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser
+        .new_page(fixture_url("form.html").as_str())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let result = remix_browser::tools::interaction::fill(
+        &page,
+        &remix_browser::tools::interaction::FillParams {
+            selector: "#color".to_string(),
+            value: "green".to_string(),
+            selector_type: Some(remix_browser::selectors::SelectorType::Css),
+        },
+    )
+    .await;
+
+    assert!(result.is_ok(), "fill() select should succeed, error: {:?}", result.err());
+
+    let value: String = page
+        .evaluate("document.getElementById('color').value")
+        .await
+        .unwrap()
+        .into_value()
+        .unwrap();
+    assert_eq!(value, "green", "Select value should be 'green'");
+}
+
+// ── Ref Resolution in page.js() Test ────────────────────────────────────
+
+#[tokio::test]
+async fn test_ref_resolution_in_page_js() {
+    let (browser, _handle, _tmp) = launch_test_browser().await;
+    let page = browser.new_page("about:blank").await.unwrap();
+
+    let console_log = remix_browser::tools::javascript::ConsoleLog::new();
+    let network_log = remix_browser::tools::network::NetworkLog::new();
+
+    let url = fixture_url("basic.html");
+    let script = format!(
+        r#"page.navigate('{}');
+        const snap = page.snapshot();
+        // Find the ref for the link — use page.js with [ref=e0] to get its text
+        const text = page.js("document.querySelector('[ref=e0]').textContent");
+        console.log('Ref resolved text: ' + text);"#,
+        url
+    );
+
+    let params = remix_browser::tools::script::RunScriptParams { script };
+    let (result, _screenshots, refs) =
+        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log, None)
+            .await
+            .unwrap();
+
+    assert!(
+        result.success,
+        "Script should succeed, error: {:?}",
+        result.error
+    );
+
+    // The ref should have been auto-resolved to a real CSS selector
+    // and the querySelector should have returned actual text content
+    assert!(
+        result.output.contains("Ref resolved text:"),
+        "Should have output from ref resolution, got:\n{}",
+        result.output
+    );
+
+    // Verify that refs were populated
+    assert!(refs.is_some(), "Snapshot refs should be returned");
+    let refs = refs.unwrap();
+    assert!(refs.contains_key("e0"), "Should have e0 ref");
 }

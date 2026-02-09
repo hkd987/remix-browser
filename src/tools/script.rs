@@ -65,6 +65,35 @@ struct ScriptContext {
     snapshot_refs: Mutex<Option<HashMap<String, String>>>,
 }
 
+impl ScriptContext {
+    fn resolve_ref(&self, selector: &str) -> Result<String, String> {
+        let refs_guard = self.snapshot_refs.lock().unwrap();
+        if let Some(ref refs) = *refs_guard {
+            match crate::selectors::r#ref::resolve_selector(selector, refs) {
+                Ok(resolved) => Ok(resolved),
+                Err(crate::selectors::r#ref::ResolveRefError::NotFound(ref_id)) => {
+                    let mut keys: Vec<&String> = refs.keys().collect();
+                    keys.sort();
+                    let range = if keys.is_empty() {
+                        "none".to_string()
+                    } else {
+                        format!("{}-{}", keys.first().unwrap(), keys.last().unwrap())
+                    };
+                    Err(format!(
+                        "Ref '{}' not found. Available: {}. Call page.snapshot() to refresh.",
+                        ref_id, range
+                    ))
+                }
+                Err(_) => Ok(selector.to_string()), // Not a ref pattern, pass through
+            }
+        } else if crate::selectors::r#ref::parse_ref(selector).is_some() {
+            Err("No snapshot taken yet. Call page.snapshot() first.".to_string())
+        } else {
+            Ok(selector.to_string())
+        }
+    }
+}
+
 // ── Entry Point ────────────────────────────────────────────────────────
 
 pub async fn run_script(
@@ -72,6 +101,7 @@ pub async fn run_script(
     params: &RunScriptParams,
     console_log: &javascript::ConsoleLog,
     network_log: &network::NetworkLog,
+    initial_refs: Option<HashMap<String, String>>,
 ) -> Result<(ScriptResult, Vec<Content>, Option<HashMap<String, String>>)> {
     let ctx = Arc::new(ScriptContext {
         handle: tokio::runtime::Handle::current(),
@@ -80,7 +110,7 @@ pub async fn run_script(
         network_log: network_log.clone(),
         output_lines: Mutex::new(Vec::new()),
         screenshots: Mutex::new(Vec::new()),
-        snapshot_refs: Mutex::new(None),
+        snapshot_refs: Mutex::new(initial_refs),
     });
 
     let script = params.script.clone();
@@ -186,6 +216,12 @@ fn build_page_object(ctx: &Arc<ScriptContext>, js_ctx: &mut Context) -> JsValue 
         boa_engine::js_string!("reload"),
         0,
     );
+    builder.function(make_url(ctx.clone()), boa_engine::js_string!("url"), 0);
+    builder.function(
+        make_title(ctx.clone()),
+        boa_engine::js_string!("title"),
+        0,
+    );
 
     // Interaction
     builder.function(make_click(ctx.clone()), boa_engine::js_string!("click"), 2);
@@ -196,6 +232,7 @@ fn build_page_object(ctx: &Arc<ScriptContext>, js_ctx: &mut Context) -> JsValue 
         boa_engine::js_string!("select"),
         3,
     );
+    builder.function(make_fill(ctx.clone()), boa_engine::js_string!("fill"), 3);
     builder.function(make_press(ctx.clone()), boa_engine::js_string!("press"), 2);
     builder.function(
         make_scroll(ctx.clone()),
@@ -255,6 +292,11 @@ fn build_page_object(ctx: &Arc<ScriptContext>, js_ctx: &mut Context) -> JsValue 
     builder.function(
         make_get_network_log(ctx.clone()),
         boa_engine::js_string!("getNetworkLog"),
+        1,
+    );
+    builder.function(
+        make_wait_for_network_idle(ctx.clone()),
+        boa_engine::js_string!("waitForNetworkIdle"),
         1,
     );
 
@@ -471,15 +513,48 @@ fn make_reload(ctx: Arc<ScriptContext>) -> NativeFunction {
     }
 }
 
+fn make_url(ctx: Arc<ScriptContext>) -> NativeFunction {
+    unsafe {
+        NativeFunction::from_closure(move |_this, _args, _js_ctx| {
+            let page = ctx.page.clone();
+            let url = ctx
+                .handle
+                .block_on(async { page.url().await })
+                .map_err(js_err)?
+                .unwrap_or_default();
+            Ok(JsValue::from(boa_engine::js_string!(url.as_str())))
+        })
+    }
+}
+
+fn make_title(ctx: Arc<ScriptContext>) -> NativeFunction {
+    unsafe {
+        NativeFunction::from_closure(move |_this, _args, _js_ctx| {
+            let page = ctx.page.clone();
+            let title = ctx
+                .handle
+                .block_on(async { page.get_title().await })
+                .map_err(js_err)?
+                .unwrap_or_default();
+            Ok(JsValue::from(boa_engine::js_string!(title.as_str())))
+        })
+    }
+}
+
 fn make_click(ctx: Arc<ScriptContext>) -> NativeFunction {
     unsafe {
         NativeFunction::from_closure(move |_this, args, js_ctx| {
             let selector = args.get_or_undefined(0).to_string(js_ctx)?;
+            let selector_str = selector.to_std_string_escaped();
+            let selector_str = ctx.resolve_ref(&selector_str).map_err(js_err)?;
             let options = args.get_or_undefined(1).clone();
 
+            let selector_type = parse_selector_type(&options, js_ctx);
+            let (selector_str, selector_type) = crate::selectors::normalize_selector_type(&selector_str, selector_type.unwrap_or_default());
+
             let params = interaction::ClickParams {
-                selector: selector.to_std_string_escaped(),
-                selector_type: parse_selector_type(&options, js_ctx),
+                selector: selector_str,
+                selector_type: Some(selector_type),
                 button: get_string_prop(&options, "button", js_ctx),
             };
 
@@ -501,13 +576,18 @@ fn make_type(ctx: Arc<ScriptContext>) -> NativeFunction {
     unsafe {
         NativeFunction::from_closure(move |_this, args, js_ctx| {
             let selector = args.get_or_undefined(0).to_string(js_ctx)?;
+            let selector_str = selector.to_std_string_escaped();
+            let selector_str = ctx.resolve_ref(&selector_str).map_err(js_err)?;
             let text = args.get_or_undefined(1).to_string(js_ctx)?;
             let options = args.get_or_undefined(2).clone();
 
+            let selector_type = parse_selector_type(&options, js_ctx);
+            let (selector_str, selector_type) = crate::selectors::normalize_selector_type(&selector_str, selector_type.unwrap_or_default());
+
             let params = interaction::TypeTextParams {
-                selector: selector.to_std_string_escaped(),
+                selector: selector_str,
                 text: text.to_std_string_escaped(),
-                selector_type: parse_selector_type(&options, js_ctx),
+                selector_type: Some(selector_type),
                 clear_first: get_bool_prop(&options, "clear", js_ctx),
             };
 
@@ -525,11 +605,16 @@ fn make_hover(ctx: Arc<ScriptContext>) -> NativeFunction {
     unsafe {
         NativeFunction::from_closure(move |_this, args, js_ctx| {
             let selector = args.get_or_undefined(0).to_string(js_ctx)?;
+            let selector_str = selector.to_std_string_escaped();
+            let selector_str = ctx.resolve_ref(&selector_str).map_err(js_err)?;
             let options = args.get_or_undefined(1).clone();
 
+            let selector_type = parse_selector_type(&options, js_ctx);
+            let (selector_str, selector_type) = crate::selectors::normalize_selector_type(&selector_str, selector_type.unwrap_or_default());
+
             let params = interaction::HoverParams {
-                selector: selector.to_std_string_escaped(),
-                selector_type: parse_selector_type(&options, js_ctx),
+                selector: selector_str,
+                selector_type: Some(selector_type),
             };
 
             let page = ctx.page.clone();
@@ -546,13 +631,18 @@ fn make_select(ctx: Arc<ScriptContext>) -> NativeFunction {
     unsafe {
         NativeFunction::from_closure(move |_this, args, js_ctx| {
             let selector = args.get_or_undefined(0).to_string(js_ctx)?;
+            let selector_str = selector.to_std_string_escaped();
+            let selector_str = ctx.resolve_ref(&selector_str).map_err(js_err)?;
             let value = args.get_or_undefined(1).to_string(js_ctx)?;
             let options = args.get_or_undefined(2).clone();
 
+            let selector_type = parse_selector_type(&options, js_ctx);
+            let (selector_str, selector_type) = crate::selectors::normalize_selector_type(&selector_str, selector_type.unwrap_or_default());
+
             let params = interaction::SelectOptionParams {
-                selector: selector.to_std_string_escaped(),
+                selector: selector_str,
                 value: value.to_std_string_escaped(),
-                selector_type: parse_selector_type(&options, js_ctx),
+                selector_type: Some(selector_type),
             };
 
             let page = ctx.page.clone();
@@ -561,6 +651,36 @@ fn make_select(ctx: Arc<ScriptContext>) -> NativeFunction {
                 .map_err(js_err)?;
 
             Ok(JsValue::from(boa_engine::js_string!("Selected")))
+        })
+    }
+}
+
+fn make_fill(ctx: Arc<ScriptContext>) -> NativeFunction {
+    unsafe {
+        NativeFunction::from_closure(move |_this, args, js_ctx| {
+            let selector = args.get_or_undefined(0).to_string(js_ctx)?;
+            let selector_str = selector.to_std_string_escaped();
+            let selector_str = ctx.resolve_ref(&selector_str).map_err(js_err)?;
+            let value = args.get_or_undefined(1).to_string(js_ctx)?;
+            let options = args.get_or_undefined(2).clone();
+
+            let selector_type = parse_selector_type(&options, js_ctx);
+            let (selector_str, selector_type) = crate::selectors::normalize_selector_type(
+                &selector_str, selector_type.unwrap_or_default()
+            );
+
+            let params = interaction::FillParams {
+                selector: selector_str,
+                value: value.to_std_string_escaped(),
+                selector_type: Some(selector_type),
+            };
+
+            let page = ctx.page.clone();
+            let result = ctx.handle
+                .block_on(async { interaction::fill(&page, &params).await })
+                .map_err(js_err)?;
+
+            Ok(JsValue::from(boa_engine::js_string!(result)))
         })
     }
 }
@@ -632,10 +752,12 @@ fn make_wait_for(ctx: Arc<ScriptContext>) -> NativeFunction {
     unsafe {
         NativeFunction::from_closure(move |_this, args, js_ctx| {
             let selector = args.get_or_undefined(0).to_string(js_ctx)?;
+            let selector_str = selector.to_std_string_escaped();
+            let selector_str = ctx.resolve_ref(&selector_str).map_err(js_err)?;
             let options = args.get_or_undefined(1).clone();
 
             let params = dom::WaitForParams {
-                selector: selector.to_std_string_escaped(),
+                selector: selector_str,
                 selector_type: parse_selector_type(&options, js_ctx),
                 timeout_ms: get_number_prop(&options, "timeout", js_ctx).map(|n| n as u64),
                 state: get_string_prop(&options, "state", js_ctx),
@@ -708,10 +830,12 @@ fn make_get_text(ctx: Arc<ScriptContext>) -> NativeFunction {
     unsafe {
         NativeFunction::from_closure(move |_this, args, js_ctx| {
             let selector = args.get_or_undefined(0).to_string(js_ctx)?;
+            let selector_str = selector.to_std_string_escaped();
+            let selector_str = ctx.resolve_ref(&selector_str).map_err(js_err)?;
             let options = args.get_or_undefined(1).clone();
 
             let params = dom::GetTextParams {
-                selector: selector.to_std_string_escaped(),
+                selector: selector_str,
                 selector_type: parse_selector_type(&options, js_ctx),
             };
 
@@ -737,6 +861,7 @@ fn make_get_html(ctx: Arc<ScriptContext>) -> NativeFunction {
                 (None, JsValue::undefined())
             } else {
                 let sel = first_arg.to_string(js_ctx)?.to_std_string_escaped();
+                let sel = ctx.resolve_ref(&sel).map_err(js_err)?;
                 (Some(sel), args.get_or_undefined(1).clone())
             };
 
@@ -761,10 +886,12 @@ fn make_find_elements(ctx: Arc<ScriptContext>) -> NativeFunction {
     unsafe {
         NativeFunction::from_closure(move |_this, args, js_ctx| {
             let selector = args.get_or_undefined(0).to_string(js_ctx)?;
+            let selector_str = selector.to_std_string_escaped();
+            let selector_str = ctx.resolve_ref(&selector_str).map_err(js_err)?;
             let options = args.get_or_undefined(1).clone();
 
             let params = dom::FindElementsParams {
-                selector: selector.to_std_string_escaped(),
+                selector: selector_str,
                 selector_type: parse_selector_type(&options, js_ctx),
                 max_results: get_number_prop(&options, "max_results", js_ctx).map(|n| n as u32),
             };
@@ -785,9 +912,27 @@ fn make_js(ctx: Arc<ScriptContext>) -> NativeFunction {
     unsafe {
         NativeFunction::from_closure(move |_this, args, js_ctx| {
             let expression = args.get_or_undefined(0).to_string(js_ctx)?;
+            let mut expr_str = expression
+                .to_std_string()
+                .unwrap_or_else(|_| expression.to_std_string_escaped());
+
+            // Auto-resolve [ref=eN] patterns in the JS expression
+            let refs_guard = ctx.snapshot_refs.lock().unwrap();
+            if let Some(ref refs) = *refs_guard {
+                let re = regex::Regex::new(r"\[ref=e(\d+)\]").unwrap();
+                expr_str = re.replace_all(&expr_str, |caps: &regex::Captures| {
+                    let ref_id = format!("e{}", &caps[1]);
+                    if let Some(css_sel) = refs.get(&ref_id) {
+                        css_sel.clone()
+                    } else {
+                        caps[0].to_string()
+                    }
+                }).to_string();
+            }
+            drop(refs_guard);
 
             let params = javascript::ExecuteJsParams {
-                expression: expression.to_std_string_escaped(),
+                expression: expr_str,
             };
 
             let page = ctx.page.clone();
@@ -897,6 +1042,47 @@ fn make_get_network_log(ctx: Arc<ScriptContext>) -> NativeFunction {
                 .map_err(js_err)?;
 
             Ok(json_to_js(&result, js_ctx))
+        })
+    }
+}
+
+fn make_wait_for_network_idle(ctx: Arc<ScriptContext>) -> NativeFunction {
+    unsafe {
+        NativeFunction::from_closure(move |_this, args, js_ctx| {
+            let options = args.get_or_undefined(0).clone();
+            let timeout_ms = get_number_prop(&options, "timeout", js_ctx)
+                .map(|n| n as u64)
+                .unwrap_or(30000);
+            let idle_ms = get_number_prop(&options, "idle", js_ctx)
+                .map(|n| n as u64)
+                .unwrap_or(500);
+
+            let network_log = ctx.network_log.clone();
+            ctx.handle.block_on(async {
+                let start = std::time::Instant::now();
+                let mut idle_start: Option<std::time::Instant> = None;
+
+                loop {
+                    if start.elapsed().as_millis() as u64 > timeout_ms {
+                        break;
+                    }
+
+                    let pending = network_log.pending_requests();
+                    if pending == 0 {
+                        match idle_start {
+                            Some(idle) if idle.elapsed().as_millis() as u64 >= idle_ms => break,
+                            None => idle_start = Some(std::time::Instant::now()),
+                            _ => {}
+                        }
+                    } else {
+                        idle_start = None;
+                    }
+
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+            });
+
+            Ok(JsValue::from(boa_engine::js_string!("Network idle")))
         })
     }
 }

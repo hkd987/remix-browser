@@ -23,9 +23,10 @@ pub struct ClickResult {
 
 pub async fn do_click(page: &Page, params: &ClickParams) -> Result<ClickResult> {
     let selector_type = params.selector_type.clone().unwrap_or_default();
+    let (selector, selector_type) = crate::selectors::normalize_selector_type(&params.selector, selector_type);
     let button = params.button.as_deref().unwrap_or("left");
 
-    let result = click::hybrid_click(page, &params.selector, &selector_type, button).await?;
+    let result = click::hybrid_click(page, &selector, &selector_type, button).await?;
 
     Ok(ClickResult {
         success: result.success,
@@ -47,11 +48,12 @@ pub struct TypeTextParams {
 
 pub async fn type_text(page: &Page, params: &TypeTextParams) -> Result<bool> {
     let selector_type = params.selector_type.clone().unwrap_or_default();
+    let (selector, selector_type) = crate::selectors::normalize_selector_type(&params.selector, selector_type);
     let clear_first = params.clear_first.unwrap_or(false);
 
     keyboard::type_text(
         page,
-        &params.selector,
+        &selector,
         &selector_type,
         &params.text,
         clear_first,
@@ -71,7 +73,8 @@ pub struct HoverParams {
 
 pub async fn hover(page: &Page, params: &HoverParams) -> Result<bool> {
     let selector_type = params.selector_type.clone().unwrap_or_default();
-    let selector_js = click::selector_to_js(&params.selector, &selector_type)?;
+    let (selector, selector_type) = crate::selectors::normalize_selector_type(&params.selector, selector_type);
+    let selector_js = click::selector_to_js(&selector, &selector_type)?;
 
     let js = format!(
         r#"(() => {{
@@ -106,7 +109,8 @@ pub struct SelectOptionParams {
 
 pub async fn select_option(page: &Page, params: &SelectOptionParams) -> Result<bool> {
     let selector_type = params.selector_type.clone().unwrap_or_default();
-    let selector_js = click::selector_to_js(&params.selector, &selector_type)?;
+    let (selector, selector_type) = crate::selectors::normalize_selector_type(&params.selector, selector_type);
+    let selector_js = click::selector_to_js(&selector, &selector_type)?;
 
     let js = format!(
         r#"(() => {{
@@ -165,4 +169,102 @@ pub async fn do_scroll(page: &Page, params: &ScrollParams) -> Result<bool> {
     )
     .await?;
     Ok(true)
+}
+
+#[derive(Debug, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct FillParams {
+    #[schemars(description = "Selector for the form element")]
+    pub selector: String,
+    #[schemars(description = "Value to set (text for inputs, 'true'/'false' for checkboxes, numeric string for sliders)")]
+    pub value: String,
+    #[schemars(description = "Type of selector: css, text, or xpath")]
+    pub selector_type: Option<SelectorType>,
+}
+
+pub async fn fill(page: &Page, params: &FillParams) -> Result<String> {
+    let selector_type = params.selector_type.clone().unwrap_or_default();
+    let (selector, selector_type) = crate::selectors::normalize_selector_type(&params.selector, selector_type);
+
+    // Auto-wait for element
+    crate::interaction::wait::wait_for_selector(page, &selector, &selector_type, 5000).await?;
+
+    let selector_js = click::selector_to_js(&selector, &selector_type)?;
+    let value_json = serde_json::to_string(&params.value)?;
+
+    let js = format!(
+        r#"(() => {{
+            const el = {selector_js};
+            if (!el) throw new Error('Element not found');
+            const val = {value_json};
+            const tag = el.tagName;
+
+            // SELECT
+            if (tag === 'SELECT') {{
+                el.value = val;
+                el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                return 'selected: ' + val;
+            }}
+
+            // CHECKBOX / RADIO
+            if (el.type === 'checkbox' || el.type === 'radio') {{
+                const want = (val === 'true' || val === '1' || val === 'on');
+                if (el.checked !== want) el.click();
+                return (el.type) + ': ' + el.checked;
+            }}
+
+            // INPUT[type=range] slider
+            if (el.type === 'range') {{
+                const nativeSetter = Object.getOwnPropertyDescriptor(
+                    window.HTMLInputElement.prototype, 'value'
+                )?.set;
+                if (nativeSetter) nativeSetter.call(el, val);
+                else el.value = val;
+                el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                return 'range: ' + el.value;
+            }}
+
+            // ARIA slider (role="slider" with aria-valuenow)
+            if (el.getAttribute('role') === 'slider') {{
+                const min = parseFloat(el.getAttribute('aria-valuemin') || '0');
+                const max = parseFloat(el.getAttribute('aria-valuemax') || '100');
+                const target = parseFloat(val);
+                const rect = el.getBoundingClientRect();
+                const ratio = (target - min) / (max - min);
+                const x = rect.left + rect.width * ratio;
+                const y = rect.top + rect.height / 2;
+                const opts = {{ bubbles: true, clientX: x, clientY: y }};
+                el.dispatchEvent(new PointerEvent('pointerdown', opts));
+                el.dispatchEvent(new MouseEvent('mousedown', opts));
+                el.dispatchEvent(new PointerEvent('pointermove', opts));
+                el.dispatchEvent(new MouseEvent('mousemove', opts));
+                el.dispatchEvent(new PointerEvent('pointerup', opts));
+                el.dispatchEvent(new MouseEvent('mouseup', opts));
+                return 'aria-slider targeted: ' + val;
+            }}
+
+            // TEXT INPUT / TEXTAREA (default)
+            const nativeSetter = Object.getOwnPropertyDescriptor(
+                window.HTMLInputElement.prototype, 'value'
+            )?.set || Object.getOwnPropertyDescriptor(
+                window.HTMLTextAreaElement.prototype, 'value'
+            )?.set;
+            if (nativeSetter) nativeSetter.call(el, val);
+            else el.value = val;
+            el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+            el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+            return 'filled: ' + val.substring(0, 50);
+        }})()"#,
+        selector_js = selector_js,
+        value_json = value_json
+    );
+
+    let result: String = page
+        .evaluate(js.as_str())
+        .await
+        .context("Failed to fill element")?
+        .into_value()
+        .unwrap_or_else(|_| "filled".to_string());
+
+    Ok(result)
 }

@@ -32,9 +32,16 @@ async fn main() -> anyhow::Result<()> {
 
     let server = remix_browser::server::RemixBrowserServer::new(headless);
     let service = server.clone().serve(stdio()).await?;
-    service.waiting().await?;
 
-    // Explicitly kill Chrome before exiting
+    // Wait for MCP service to finish OR a termination signal — whichever comes first
+    tokio::select! {
+        result = service.waiting() => { result?; }
+        _ = tokio::signal::ctrl_c() => {
+            tracing::info!("Received interrupt signal, shutting down");
+        }
+    }
+
+    // Always kill Chrome before exiting
     server.shutdown().await;
 
     tracing::info!("remix-browser MCP server shut down");
