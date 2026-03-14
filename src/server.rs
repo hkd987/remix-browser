@@ -54,23 +54,18 @@ pub struct RemixBrowserServer {
 }
 
 impl RemixBrowserServer {
-    pub fn new(headless: bool) -> Self {
+    pub fn new(headless: bool, cdp_url: Option<String>) -> Self {
         Self {
             session: Arc::new(Mutex::new(None)),
             console_log: javascript::ConsoleLog::new(),
             network_log: network::NetworkLog::new(),
             snapshot_refs: Arc::new(Mutex::new(HashMap::new())),
             headless,
-            cdp_url: None,
+            cdp_url,
         }
     }
 
-    pub fn with_cdp_url(mut self, cdp_url: Option<String>) -> Self {
-        self.cdp_url = cdp_url;
-        self
-    }
-
-    /// Explicitly shut down the browser session, killing Chrome.
+    /// Shut down the browser session.
     pub async fn shutdown(&self) {
         let session_to_close = {
             let mut session = self.session.lock().await;
@@ -84,24 +79,15 @@ impl RemixBrowserServer {
         self.clear_snapshot_refs().await;
     }
 
-    /// Ensure the browser is launched or connected, return a reference to the session.
+    /// Ensure the browser is launched or connected.
     async fn ensure_browser(&self) -> Result<(), McpError> {
         let mut session = self.session.lock().await;
         if session.is_none() {
-            let s = if let Some(ref cdp_url) = self.cdp_url {
-                tracing::info!("Connecting to existing browser at {}", cdp_url);
-                BrowserSession::connect(cdp_url).await.map_err(|e| {
-                    McpError::internal_error(
-                        format!("Failed to connect to browser at {}: {}", cdp_url, e),
-                        None,
-                    )
-                })?
-            } else {
-                tracing::info!("Launching browser (headless: {})", self.headless);
-                BrowserSession::launch(self.headless).await.map_err(|e| {
-                    McpError::internal_error(format!("Failed to launch browser: {}", e), None)
-                })?
-            };
+            let s = match &self.cdp_url {
+                Some(url) => BrowserSession::connect(url).await,
+                None => BrowserSession::launch(self.headless).await,
+            }
+            .map_err(|e| McpError::internal_error(format!("{:#}", e), None))?;
             *session = Some(s);
         }
         Ok(())
@@ -177,10 +163,13 @@ impl RemixBrowserServer {
     }
 
     async fn auto_snapshot(&self) -> String {
-        match self.with_page(|page| async move {
-            let params = snapshot::SnapshotParams { selector: None };
-            snapshot::snapshot_with_refs(&page, &params).await
-        }).await {
+        match self
+            .with_page(|page| async move {
+                let params = snapshot::SnapshotParams { selector: None };
+                snapshot::snapshot_with_refs(&page, &params).await
+            })
+            .await
+        {
             Ok(snap) => {
                 self.set_snapshot_refs(snap.refs).await;
                 snap.text
@@ -200,7 +189,10 @@ impl RemixBrowserServer {
                 // Auto-recovery: take fresh snapshot
                 let snap_text = self.auto_snapshot().await;
                 Err(McpError::internal_error(
-                    format!("Ref '{}' not found — page may have changed.\n\nCurrent page state:\n{}", ref_id, snap_text),
+                    format!(
+                        "Ref '{}' not found — page may have changed.\n\nCurrent page state:\n{}",
+                        ref_id, snap_text
+                    ),
                     None,
                 ))
             }
@@ -236,7 +228,10 @@ impl RemixBrowserServer {
             .with_page(|page| async move { navigation::navigate(&page, &params).await })
             .await?;
         let snap_text = self.auto_snapshot().await;
-        Self::text_result(format!("Navigated to {} — {}\n\nPage state:\n{}", result.title, result.url, snap_text))
+        Self::text_result(format!(
+            "Navigated to {} — {}\n\nPage state:\n{}",
+            result.title, result.url, snap_text
+        ))
     }
 
     #[tool(description = "Go back in browser history.")]
@@ -246,7 +241,10 @@ impl RemixBrowserServer {
             .with_page(|page| async move { navigation::go_back(&page).await })
             .await?;
         let snap_text = self.auto_snapshot().await;
-        Self::text_result(format!("Navigated back to {} — {}\n\nPage state:\n{}", result.title, result.url, snap_text))
+        Self::text_result(format!(
+            "Navigated back to {} — {}\n\nPage state:\n{}",
+            result.title, result.url, snap_text
+        ))
     }
 
     #[tool(description = "Go forward in browser history.")]
@@ -256,7 +254,10 @@ impl RemixBrowserServer {
             .with_page(|page| async move { navigation::go_forward(&page).await })
             .await?;
         let snap_text = self.auto_snapshot().await;
-        Self::text_result(format!("Navigated forward to {} — {}\n\nPage state:\n{}", result.title, result.url, snap_text))
+        Self::text_result(format!(
+            "Navigated forward to {} — {}\n\nPage state:\n{}",
+            result.title, result.url, snap_text
+        ))
     }
 
     #[tool(description = "Reload the current page.")]
@@ -266,7 +267,10 @@ impl RemixBrowserServer {
             .with_page(|page| async move { navigation::reload(&page).await })
             .await?;
         let snap_text = self.auto_snapshot().await;
-        Self::text_result(format!("Reloaded {} — {}\n\nPage state:\n{}", result.title, result.url, snap_text))
+        Self::text_result(format!(
+            "Reloaded {} — {}\n\nPage state:\n{}",
+            result.title, result.url, snap_text
+        ))
     }
 
     #[tool(description = "Get current page URL, title, and viewport size.")]
@@ -301,7 +305,9 @@ impl RemixBrowserServer {
         #[tool(aggr)] params: dom::GetTextParams,
     ) -> Result<CallToolResult, McpError> {
         let mut params = params;
-        params.selector = self.normalize_selector_with_recovery(&params.selector).await?;
+        params.selector = self
+            .normalize_selector_with_recovery(&params.selector)
+            .await?;
         let result = self
             .with_page(|page| async move { dom::get_text(&page, &params).await })
             .await?;
@@ -339,7 +345,9 @@ impl RemixBrowserServer {
         #[tool(aggr)] params: dom::WaitForParams,
     ) -> Result<CallToolResult, McpError> {
         let mut params = params;
-        params.selector = self.normalize_selector_with_recovery(&params.selector).await?;
+        params.selector = self
+            .normalize_selector_with_recovery(&params.selector)
+            .await?;
         let found = self
             .with_page(|page| async move { dom::wait_for(&page, &params).await })
             .await?;
@@ -347,7 +355,10 @@ impl RemixBrowserServer {
         if found {
             Self::text_result(format!("Element found\n\nPage state:\n{}", snap_text))
         } else {
-            Self::text_result(format!("Element not found (timeout)\n\nPage state:\n{}", snap_text))
+            Self::text_result(format!(
+                "Element not found (timeout)\n\nPage state:\n{}",
+                snap_text
+            ))
         }
     }
 
@@ -361,12 +372,17 @@ impl RemixBrowserServer {
         #[tool(aggr)] params: interaction::ClickParams,
     ) -> Result<CallToolResult, McpError> {
         let mut params = params;
-        params.selector = self.normalize_selector_with_recovery(&params.selector).await?;
+        params.selector = self
+            .normalize_selector_with_recovery(&params.selector)
+            .await?;
         let result = self
             .with_page(|page| async move { interaction::do_click(&page, &params).await })
             .await?;
         let snap_text = self.auto_snapshot().await;
-        Self::text_result(format!("Clicked element ({})\n\nPage state:\n{}", result.method_used, snap_text))
+        Self::text_result(format!(
+            "Clicked element ({})\n\nPage state:\n{}",
+            result.method_used, snap_text
+        ))
     }
 
     #[tool(description = "Type text into an element.")]
@@ -375,11 +391,16 @@ impl RemixBrowserServer {
         #[tool(aggr)] params: interaction::TypeTextParams,
     ) -> Result<CallToolResult, McpError> {
         let mut params = params;
-        params.selector = self.normalize_selector_with_recovery(&params.selector).await?;
+        params.selector = self
+            .normalize_selector_with_recovery(&params.selector)
+            .await?;
         self.with_page(|page| async move { interaction::type_text(&page, &params).await })
             .await?;
         let snap_text = self.auto_snapshot().await;
-        Self::text_result(format!("Typed text into element\n\nPage state:\n{}", snap_text))
+        Self::text_result(format!(
+            "Typed text into element\n\nPage state:\n{}",
+            snap_text
+        ))
     }
 
     #[tool(description = "Hover over an element.")]
@@ -388,11 +409,16 @@ impl RemixBrowserServer {
         #[tool(aggr)] params: interaction::HoverParams,
     ) -> Result<CallToolResult, McpError> {
         let mut params = params;
-        params.selector = self.normalize_selector_with_recovery(&params.selector).await?;
+        params.selector = self
+            .normalize_selector_with_recovery(&params.selector)
+            .await?;
         self.with_page(|page| async move { interaction::hover(&page, &params).await })
             .await?;
         let snap_text = self.auto_snapshot().await;
-        Self::text_result(format!("Hovered over element\n\nPage state:\n{}", snap_text))
+        Self::text_result(format!(
+            "Hovered over element\n\nPage state:\n{}",
+            snap_text
+        ))
     }
 
     #[tool(description = "Select an option from a <select> element.")]
@@ -401,20 +427,26 @@ impl RemixBrowserServer {
         #[tool(aggr)] params: interaction::SelectOptionParams,
     ) -> Result<CallToolResult, McpError> {
         let mut params = params;
-        params.selector = self.normalize_selector_with_recovery(&params.selector).await?;
+        params.selector = self
+            .normalize_selector_with_recovery(&params.selector)
+            .await?;
         self.with_page(|page| async move { interaction::select_option(&page, &params).await })
             .await?;
         let snap_text = self.auto_snapshot().await;
         Self::text_result(format!("Selected option\n\nPage state:\n{}", snap_text))
     }
 
-    #[tool(description = "Set the value of any form control (input, textarea, select, checkbox, slider). Smarter than type_text — auto-detects control type.")]
+    #[tool(
+        description = "Set the value of any form control (input, textarea, select, checkbox, slider). Smarter than type_text — auto-detects control type."
+    )]
     async fn fill(
         &self,
         #[tool(aggr)] params: interaction::FillParams,
     ) -> Result<CallToolResult, McpError> {
         let mut params = params;
-        params.selector = self.normalize_selector_with_recovery(&params.selector).await?;
+        params.selector = self
+            .normalize_selector_with_recovery(&params.selector)
+            .await?;
         let result = self
             .with_page(|page| async move { interaction::fill(&page, &params).await })
             .await?;
@@ -444,7 +476,10 @@ impl RemixBrowserServer {
         self.with_page(|page| async move { interaction::do_scroll(&page, &params).await })
             .await?;
         let snap_text = self.auto_snapshot().await;
-        Self::text_result(format!("Scrolled {} {}px\n\nPage state:\n{}", direction, amount, snap_text))
+        Self::text_result(format!(
+            "Scrolled {} {}px\n\nPage state:\n{}",
+            direction, amount, snap_text
+        ))
     }
 
     // ── Visual ──────────────────────────────────────────────────────────
@@ -611,7 +646,11 @@ impl RemixBrowserServer {
     ) -> Result<CallToolResult, McpError> {
         let current_refs = {
             let r = self.snapshot_refs.lock().await;
-            if r.is_empty() { None } else { Some(r.clone()) }
+            if r.is_empty() {
+                None
+            } else {
+                Some(r.clone())
+            }
         };
         let console_log = self.console_log.clone();
         let network_log = self.network_log.clone();
@@ -671,7 +710,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_normalize_selector_resolves_snapshot_ref() {
-        let server = RemixBrowserServer::new(true);
+        let server = RemixBrowserServer::new(true, None);
         let refs = HashMap::from([("e4".to_string(), "#submit-btn".to_string())]);
         server.set_snapshot_refs(refs).await;
 
@@ -685,7 +724,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_normalize_selector_stale_ref_has_guidance() {
-        let server = RemixBrowserServer::new(true);
+        let server = RemixBrowserServer::new(true, None);
 
         let err = server
             .normalize_selector("e99")
@@ -697,14 +736,13 @@ mod tests {
 
     #[test]
     fn test_server_with_cdp_url() {
-        let server = RemixBrowserServer::new(true)
-            .with_cdp_url(Some("ws://127.0.0.1:9222".to_string()));
+        let server = RemixBrowserServer::new(true, Some("ws://127.0.0.1:9222".to_string()));
         assert_eq!(server.cdp_url, Some("ws://127.0.0.1:9222".to_string()));
     }
 
     #[test]
-    fn test_server_without_cdp_url() {
-        let server = RemixBrowserServer::new(true).with_cdp_url(None);
+    fn test_server_without_cdp_url_defaults_to_none() {
+        let server = RemixBrowserServer::new(true, None);
         assert_eq!(server.cdp_url, None);
     }
 }

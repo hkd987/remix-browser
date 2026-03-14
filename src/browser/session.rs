@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use chromiumoxide::browser::{Browser, BrowserConfig};
+use chromiumoxide::handler::Handler;
 use chromiumoxide::page::Page;
 use futures::StreamExt;
 use std::sync::Arc;
@@ -13,11 +14,14 @@ pub struct BrowserSession {
     _handler_task: tokio::task::JoinHandle<()>,
     pub pool: Arc<Mutex<TabPool>>,
     headless: bool,
-    /// Whether this session is connected to an external browser (don't kill on close).
-    is_remote: bool,
     /// Unique temp dir for this Chrome instance — cleaned up on drop.
-    /// `None` for remote connections.
+    /// `None` for remote connections (connected via `--cdp-url`).
     _user_data_dir: Option<tempfile::TempDir>,
+}
+
+/// Spawn a task that drives the CDP event loop (must be polled to keep the connection alive).
+fn spawn_handler(mut handler: Handler) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move { while handler.next().await.is_some() {} })
 }
 
 impl BrowserSession {
@@ -49,17 +53,12 @@ impl BrowserSession {
 
         let config = builder.build().map_err(|e| anyhow::anyhow!("{}", e))?;
 
-        let (browser, mut handler) = Browser::launch(config)
+        let (browser, handler) = Browser::launch(config)
             .await
             .context("Failed to launch Chrome")?;
 
-        let handler_task = tokio::spawn(async move {
-            while let Some(_event) = handler.next().await {
-                // Process browser events
-            }
-        });
+        let handler_task = spawn_handler(handler);
 
-        // Create initial page
         let page = browser
             .new_page("about:blank")
             .await
@@ -67,14 +66,13 @@ impl BrowserSession {
 
         let pool = Arc::new(Mutex::new(TabPool::new(page)));
 
-        tracing::info!("Browser session started (headless: {})", headless);
+        tracing::info!("Browser launched (headless: {})", headless);
 
         Ok(Self {
             browser,
             _handler_task: handler_task,
             pool,
             headless,
-            is_remote: false,
             _user_data_dir: Some(user_data_dir),
         })
     }
@@ -84,20 +82,17 @@ impl BrowserSession {
     /// Accepts `ws://` WebSocket URLs or `http://` URLs (auto-discovers
     /// the WebSocket URL from the `/json/version` endpoint).
     pub async fn connect(cdp_url: &str) -> Result<Self> {
-        tracing::info!("Connecting to existing browser at {}", cdp_url);
-
-        let (browser, mut handler) = Browser::connect(cdp_url)
+        let (browser, handler) = Browser::connect(cdp_url)
             .await
-            .context(format!("Failed to connect to browser at {}", cdp_url))?;
+            .with_context(|| format!("Failed to connect to browser at {}", cdp_url))?;
 
-        let handler_task = tokio::spawn(async move {
-            while let Some(_event) = handler.next().await {
-                // Process browser events
-            }
-        });
+        let handler_task = spawn_handler(handler);
 
         // Use an existing page if available, otherwise create one
-        let pages = browser.pages().await.unwrap_or_default();
+        let pages = browser.pages().await.unwrap_or_else(|e| {
+            tracing::warn!("Failed to list existing pages: {}, creating new tab", e);
+            Vec::new()
+        });
         let page = if let Some(first_page) = pages.into_iter().next() {
             first_page
         } else {
@@ -116,9 +111,13 @@ impl BrowserSession {
             _handler_task: handler_task,
             pool,
             headless: false,
-            is_remote: true,
             _user_data_dir: None,
         })
+    }
+
+    /// Whether this session is connected to an external browser (vs locally launched).
+    pub fn is_remote(&self) -> bool {
+        self._user_data_dir.is_none()
     }
 
     /// Get the currently active page.
@@ -142,12 +141,8 @@ impl BrowserSession {
     /// Close the browser session.
     /// For remote connections, only disconnects without killing the browser.
     pub async fn close(self) -> Result<()> {
-        if self.is_remote {
-            tracing::info!("Disconnecting from remote browser (leaving it running)");
-            // Drop the browser handle without killing the process
-        } else {
-            tracing::info!("Closing local browser");
-        }
+        let mode = if self.is_remote() { "remote" } else { "local" };
+        tracing::info!("Closing {} browser session", mode);
         drop(self.browser);
         Ok(())
     }

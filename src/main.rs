@@ -33,14 +33,12 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let headless = !cli.headed;
 
-    if let Some(ref url) = cli.cdp_url {
-        tracing::info!("Starting remix-browser MCP server (connecting to {})", url);
-    } else {
-        tracing::info!("Starting remix-browser MCP server (headless: {})", headless);
+    match &cli.cdp_url {
+        Some(url) => tracing::info!("Starting remix-browser MCP server (connecting to {})", url),
+        None => tracing::info!("Starting remix-browser MCP server (headless: {})", headless),
     }
 
-    let server =
-        remix_browser::server::RemixBrowserServer::new(headless).with_cdp_url(cli.cdp_url);
+    let server = remix_browser::server::RemixBrowserServer::new(headless, cli.cdp_url);
     let service = server.clone().serve(stdio()).await?;
 
     // Wait for MCP service to finish OR a termination signal — whichever comes first
