@@ -32,7 +32,7 @@ anyhow = "1"
 thiserror = "2"
 
 # CLI args
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 
 # Utility
 which = "7"

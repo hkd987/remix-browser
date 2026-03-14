@@ -23,7 +23,8 @@ pub struct ClickResult {
 
 pub async fn do_click(page: &Page, params: &ClickParams) -> Result<ClickResult> {
     let selector_type = params.selector_type.clone().unwrap_or_default();
-    let (selector, selector_type) = crate::selectors::normalize_selector_type(&params.selector, selector_type);
+    let (selector, selector_type) =
+        crate::selectors::normalize_selector_type(&params.selector, selector_type);
     let button = params.button.as_deref().unwrap_or("left");
 
     let result = click::hybrid_click(page, &selector, &selector_type, button).await?;
@@ -48,17 +49,11 @@ pub struct TypeTextParams {
 
 pub async fn type_text(page: &Page, params: &TypeTextParams) -> Result<bool> {
     let selector_type = params.selector_type.clone().unwrap_or_default();
-    let (selector, selector_type) = crate::selectors::normalize_selector_type(&params.selector, selector_type);
+    let (selector, selector_type) =
+        crate::selectors::normalize_selector_type(&params.selector, selector_type);
     let clear_first = params.clear_first.unwrap_or(false);
 
-    keyboard::type_text(
-        page,
-        &selector,
-        &selector_type,
-        &params.text,
-        clear_first,
-    )
-    .await?;
+    keyboard::type_text(page, &selector, &selector_type, &params.text, clear_first).await?;
 
     Ok(true)
 }
@@ -73,7 +68,8 @@ pub struct HoverParams {
 
 pub async fn hover(page: &Page, params: &HoverParams) -> Result<bool> {
     let selector_type = params.selector_type.clone().unwrap_or_default();
-    let (selector, selector_type) = crate::selectors::normalize_selector_type(&params.selector, selector_type);
+    let (selector, selector_type) =
+        crate::selectors::normalize_selector_type(&params.selector, selector_type);
     let selector_js = click::selector_to_js(&selector, &selector_type)?;
 
     let js = format!(
@@ -109,7 +105,8 @@ pub struct SelectOptionParams {
 
 pub async fn select_option(page: &Page, params: &SelectOptionParams) -> Result<bool> {
     let selector_type = params.selector_type.clone().unwrap_or_default();
-    let (selector, selector_type) = crate::selectors::normalize_selector_type(&params.selector, selector_type);
+    let (selector, selector_type) =
+        crate::selectors::normalize_selector_type(&params.selector, selector_type);
     let selector_js = click::selector_to_js(&selector, &selector_type)?;
 
     let js = format!(
@@ -175,7 +172,9 @@ pub async fn do_scroll(page: &Page, params: &ScrollParams) -> Result<bool> {
 pub struct FillParams {
     #[schemars(description = "Selector for the form element")]
     pub selector: String,
-    #[schemars(description = "Value to set (text for inputs, 'true'/'false' for checkboxes, numeric string for sliders)")]
+    #[schemars(
+        description = "Value to set (text for inputs, 'true'/'false' for checkboxes, numeric string for sliders)"
+    )]
     pub value: String,
     #[schemars(description = "Type of selector: css, text, or xpath")]
     pub selector_type: Option<SelectorType>,
@@ -183,7 +182,8 @@ pub struct FillParams {
 
 pub async fn fill(page: &Page, params: &FillParams) -> Result<String> {
     let selector_type = params.selector_type.clone().unwrap_or_default();
-    let (selector, selector_type) = crate::selectors::normalize_selector_type(&params.selector, selector_type);
+    let (selector, selector_type) =
+        crate::selectors::normalize_selector_type(&params.selector, selector_type);
 
     // Auto-wait for element
     crate::interaction::wait::wait_for_selector(page, &selector, &selector_type, 5000).await?;

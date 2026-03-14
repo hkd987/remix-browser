@@ -102,6 +102,48 @@ That's it. Claude now has a browser.
 }
 ```
 
+### Connect to your existing browser
+
+Chrome 144+ has a built-in toggle that lets any agent connect to your running browser — no extensions needed.
+
+1. Open `chrome://inspect/#remote-debugging` in Chrome
+2. Enable the remote debugging toggle
+3. Connect remix-browser:
+
+```json
+{
+  "mcpServers": {
+    "remix-browser": {
+      "command": "/path/to/remix-browser",
+      "args": ["--cdp-url", "ws://127.0.0.1:9222"]
+    }
+  }
+}
+```
+
+Or use an environment variable:
+
+```json
+{
+  "mcpServers": {
+    "remix-browser": {
+      "command": "/path/to/remix-browser",
+      "env": {
+        "CDP_URL": "ws://127.0.0.1:9222"
+      }
+    }
+  }
+}
+```
+
+HTTP URLs also work — the WebSocket URL is auto-discovered from `/json/version`:
+
+```bash
+CDP_URL=http://127.0.0.1:9222 remix-browser
+```
+
+When connected to an external browser, remix-browser uses your existing tabs and gracefully disconnects on exit without closing Chrome.
+
 ### Best performance tip
 
 For the best experience, add this line to your project's `CLAUDE.md` (or `~/.claude/CLAUDE.md` for all projects):
@@ -231,6 +273,8 @@ This means clicks **just work** — even on sites with complex overlays, sticky 
 | Option | Default | Description |
 |---|---|---|
 | `--headed` | `false` | Show the browser window instead of running headless |
+| `--cdp-url` | — | Connect to an existing browser via CDP WebSocket or HTTP URL |
+| `CDP_URL` env var | — | Same as `--cdp-url` (env var alternative) |
 | `RUST_LOG` env var | `info` | Control log verbosity (`debug`, `trace`, etc.) |
 
 ### Chrome Detection

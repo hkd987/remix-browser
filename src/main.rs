@@ -9,6 +9,11 @@ struct Cli {
     /// Run Chrome with a visible window (default: headless)
     #[arg(long)]
     headed: bool,
+
+    /// Connect to an existing browser via CDP WebSocket URL (ws:// or http://).
+    /// When using http://, the WebSocket URL is auto-discovered from /json/version.
+    #[arg(long, env = "CDP_URL")]
+    cdp_url: Option<String>,
 }
 
 #[tokio::main]
@@ -28,9 +33,12 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let headless = !cli.headed;
 
-    tracing::info!("Starting remix-browser MCP server (headless: {})", headless);
+    match &cli.cdp_url {
+        Some(url) => tracing::info!("Starting remix-browser MCP server (connecting to {})", url),
+        None => tracing::info!("Starting remix-browser MCP server (headless: {})", headless),
+    }
 
-    let server = remix_browser::server::RemixBrowserServer::new(headless);
+    let server = remix_browser::server::RemixBrowserServer::new(headless, cli.cdp_url);
     let service = server.clone().serve(stdio()).await?;
 
     // Wait for MCP service to finish OR a termination signal — whichever comes first
@@ -41,7 +49,7 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // Always kill Chrome before exiting
+    // Shut down browser session (disconnects from remote or kills local Chrome)
     server.shutdown().await;
 
     tracing::info!("remix-browser MCP server shut down");
