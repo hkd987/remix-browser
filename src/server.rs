@@ -49,6 +49,8 @@ pub struct RemixBrowserServer {
     network_log: network::NetworkLog,
     snapshot_refs: Arc<Mutex<HashMap<String, String>>>,
     headless: bool,
+    /// When set, connect to an existing browser at this CDP URL instead of launching.
+    cdp_url: Option<String>,
 }
 
 impl RemixBrowserServer {
@@ -59,7 +61,13 @@ impl RemixBrowserServer {
             network_log: network::NetworkLog::new(),
             snapshot_refs: Arc::new(Mutex::new(HashMap::new())),
             headless,
+            cdp_url: None,
         }
+    }
+
+    pub fn with_cdp_url(mut self, cdp_url: Option<String>) -> Self {
+        self.cdp_url = cdp_url;
+        self
     }
 
     /// Explicitly shut down the browser session, killing Chrome.
@@ -76,14 +84,24 @@ impl RemixBrowserServer {
         self.clear_snapshot_refs().await;
     }
 
-    /// Ensure the browser is launched, return a reference to the session.
+    /// Ensure the browser is launched or connected, return a reference to the session.
     async fn ensure_browser(&self) -> Result<(), McpError> {
         let mut session = self.session.lock().await;
         if session.is_none() {
-            tracing::info!("Launching browser (headless: {})", self.headless);
-            let s = BrowserSession::launch(self.headless).await.map_err(|e| {
-                McpError::internal_error(format!("Failed to launch browser: {}", e), None)
-            })?;
+            let s = if let Some(ref cdp_url) = self.cdp_url {
+                tracing::info!("Connecting to existing browser at {}", cdp_url);
+                BrowserSession::connect(cdp_url).await.map_err(|e| {
+                    McpError::internal_error(
+                        format!("Failed to connect to browser at {}: {}", cdp_url, e),
+                        None,
+                    )
+                })?
+            } else {
+                tracing::info!("Launching browser (headless: {})", self.headless);
+                BrowserSession::launch(self.headless).await.map_err(|e| {
+                    McpError::internal_error(format!("Failed to launch browser: {}", e), None)
+                })?
+            };
             *session = Some(s);
         }
         Ok(())
@@ -675,5 +693,18 @@ mod tests {
             .expect_err("missing ref should error");
 
         assert!(format!("{}", err).contains("Ref 'e99' not found, call snapshot again."));
+    }
+
+    #[test]
+    fn test_server_with_cdp_url() {
+        let server = RemixBrowserServer::new(true)
+            .with_cdp_url(Some("ws://127.0.0.1:9222".to_string()));
+        assert_eq!(server.cdp_url, Some("ws://127.0.0.1:9222".to_string()));
+    }
+
+    #[test]
+    fn test_server_without_cdp_url() {
+        let server = RemixBrowserServer::new(true).with_cdp_url(None);
+        assert_eq!(server.cdp_url, None);
     }
 }
