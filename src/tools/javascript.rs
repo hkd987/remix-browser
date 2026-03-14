@@ -23,9 +23,7 @@ pub async fn execute_js(page: &Page, params: &ExecuteJsParams) -> Result<serde_j
             format!("Failed to evaluate JavaScript: {}", preview)
         })?;
 
-    let val: serde_json::Value = eval_result
-        .into_value()
-        .unwrap_or(serde_json::Value::Null);
+    let val: serde_json::Value = eval_result.into_value().unwrap_or(serde_json::Value::Null);
 
     // Detect DOM element results: CDP serializes DOM nodes as empty objects `{}`
     // When a DOM query pattern is present and the result is an empty object,
@@ -33,8 +31,10 @@ pub async fn execute_js(page: &Page, params: &ExecuteJsParams) -> Result<serde_j
     if let serde_json::Value::Object(ref map) = val {
         if map.is_empty() {
             let expr = &params.expression;
-            if expr.contains("querySelector") || expr.contains("getElementById")
-                || expr.contains("getElementsBy") || expr.contains("elementFromPoint")
+            if expr.contains("querySelector")
+                || expr.contains("getElementById")
+                || expr.contains("getElementsBy")
+                || expr.contains("elementFromPoint")
             {
                 anyhow::bail!(
                     "Expression returned a DOM element which cannot be serialized to JSON. \

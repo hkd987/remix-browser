@@ -1540,10 +1540,15 @@ async fn test_run_script_preloaded_refs() {
     );
 
     let params = remix_browser::tools::script::RunScriptParams { script };
-    let (result, _screenshots, _refs) =
-        remix_browser::tools::script::run_script(&page, &params, &console_log, &network_log, Some(snap.refs))
-            .await
-            .unwrap();
+    let (result, _screenshots, _refs) = remix_browser::tools::script::run_script(
+        &page,
+        &params,
+        &console_log,
+        &network_log,
+        Some(snap.refs),
+    )
+    .await
+    .unwrap();
 
     assert!(
         result.success,
@@ -1616,7 +1621,10 @@ async fn test_execute_js_dom_element_returns_helpful_error() {
     };
 
     let result = remix_browser::tools::javascript::execute_js(&page, &params).await;
-    assert!(result.is_err(), "querySelector returning DOM element should error");
+    assert!(
+        result.is_err(),
+        "querySelector returning DOM element should error"
+    );
     let err_msg = result.unwrap_err().to_string();
     assert!(
         err_msg.contains("DOM element"),
@@ -1676,7 +1684,10 @@ async fn test_auto_wait_click() {
 
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     let title = page.get_title().await.unwrap().unwrap_or_default();
-    assert_eq!(title, "Clicked!", "Click should have fired on delayed element");
+    assert_eq!(
+        title, "Clicked!",
+        "Click should have fired on delayed element"
+    );
 }
 
 #[tokio::test]
@@ -1751,7 +1762,11 @@ async fn test_fill_text_input() {
     )
     .await;
 
-    assert!(result.is_ok(), "fill() text input should succeed, error: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "fill() text input should succeed, error: {:?}",
+        result.err()
+    );
 
     let value: String = page
         .evaluate("document.getElementById('name').value")
@@ -1797,7 +1812,11 @@ async fn test_fill_checkbox() {
     )
     .await;
 
-    assert!(result.is_ok(), "fill() checkbox should succeed, error: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "fill() checkbox should succeed, error: {:?}",
+        result.err()
+    );
 
     let checked: bool = page
         .evaluate("document.getElementById('test-checkbox').checked")
@@ -1847,7 +1866,11 @@ async fn test_fill_range_slider() {
     )
     .await;
 
-    assert!(result.is_ok(), "fill() range should succeed, error: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "fill() range should succeed, error: {:?}",
+        result.err()
+    );
 
     let value: String = page
         .evaluate("document.getElementById('volume').value")
@@ -1877,7 +1900,11 @@ async fn test_fill_select() {
     )
     .await;
 
-    assert!(result.is_ok(), "fill() select should succeed, error: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "fill() select should succeed, error: {:?}",
+        result.err()
+    );
 
     let value: String = page
         .evaluate("document.getElementById('color').value")

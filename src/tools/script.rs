@@ -217,11 +217,7 @@ fn build_page_object(ctx: &Arc<ScriptContext>, js_ctx: &mut Context) -> JsValue 
         0,
     );
     builder.function(make_url(ctx.clone()), boa_engine::js_string!("url"), 0);
-    builder.function(
-        make_title(ctx.clone()),
-        boa_engine::js_string!("title"),
-        0,
-    );
+    builder.function(make_title(ctx.clone()), boa_engine::js_string!("title"), 0);
 
     // Interaction
     builder.function(make_click(ctx.clone()), boa_engine::js_string!("click"), 2);
@@ -550,7 +546,10 @@ fn make_click(ctx: Arc<ScriptContext>) -> NativeFunction {
             let options = args.get_or_undefined(1).clone();
 
             let selector_type = parse_selector_type(&options, js_ctx);
-            let (selector_str, selector_type) = crate::selectors::normalize_selector_type(&selector_str, selector_type.unwrap_or_default());
+            let (selector_str, selector_type) = crate::selectors::normalize_selector_type(
+                &selector_str,
+                selector_type.unwrap_or_default(),
+            );
 
             let params = interaction::ClickParams {
                 selector: selector_str,
@@ -582,7 +581,10 @@ fn make_type(ctx: Arc<ScriptContext>) -> NativeFunction {
             let options = args.get_or_undefined(2).clone();
 
             let selector_type = parse_selector_type(&options, js_ctx);
-            let (selector_str, selector_type) = crate::selectors::normalize_selector_type(&selector_str, selector_type.unwrap_or_default());
+            let (selector_str, selector_type) = crate::selectors::normalize_selector_type(
+                &selector_str,
+                selector_type.unwrap_or_default(),
+            );
 
             let params = interaction::TypeTextParams {
                 selector: selector_str,
@@ -610,7 +612,10 @@ fn make_hover(ctx: Arc<ScriptContext>) -> NativeFunction {
             let options = args.get_or_undefined(1).clone();
 
             let selector_type = parse_selector_type(&options, js_ctx);
-            let (selector_str, selector_type) = crate::selectors::normalize_selector_type(&selector_str, selector_type.unwrap_or_default());
+            let (selector_str, selector_type) = crate::selectors::normalize_selector_type(
+                &selector_str,
+                selector_type.unwrap_or_default(),
+            );
 
             let params = interaction::HoverParams {
                 selector: selector_str,
@@ -637,7 +642,10 @@ fn make_select(ctx: Arc<ScriptContext>) -> NativeFunction {
             let options = args.get_or_undefined(2).clone();
 
             let selector_type = parse_selector_type(&options, js_ctx);
-            let (selector_str, selector_type) = crate::selectors::normalize_selector_type(&selector_str, selector_type.unwrap_or_default());
+            let (selector_str, selector_type) = crate::selectors::normalize_selector_type(
+                &selector_str,
+                selector_type.unwrap_or_default(),
+            );
 
             let params = interaction::SelectOptionParams {
                 selector: selector_str,
@@ -666,7 +674,8 @@ fn make_fill(ctx: Arc<ScriptContext>) -> NativeFunction {
 
             let selector_type = parse_selector_type(&options, js_ctx);
             let (selector_str, selector_type) = crate::selectors::normalize_selector_type(
-                &selector_str, selector_type.unwrap_or_default()
+                &selector_str,
+                selector_type.unwrap_or_default(),
             );
 
             let params = interaction::FillParams {
@@ -676,7 +685,8 @@ fn make_fill(ctx: Arc<ScriptContext>) -> NativeFunction {
             };
 
             let page = ctx.page.clone();
-            let result = ctx.handle
+            let result = ctx
+                .handle
                 .block_on(async { interaction::fill(&page, &params).await })
                 .map_err(js_err)?;
 
@@ -920,14 +930,16 @@ fn make_js(ctx: Arc<ScriptContext>) -> NativeFunction {
             let refs_guard = ctx.snapshot_refs.lock().unwrap();
             if let Some(ref refs) = *refs_guard {
                 let re = regex::Regex::new(r"\[ref=e(\d+)\]").unwrap();
-                expr_str = re.replace_all(&expr_str, |caps: &regex::Captures| {
-                    let ref_id = format!("e{}", &caps[1]);
-                    if let Some(css_sel) = refs.get(&ref_id) {
-                        css_sel.clone()
-                    } else {
-                        caps[0].to_string()
-                    }
-                }).to_string();
+                expr_str = re
+                    .replace_all(&expr_str, |caps: &regex::Captures| {
+                        let ref_id = format!("e{}", &caps[1]);
+                        if let Some(css_sel) = refs.get(&ref_id) {
+                            css_sel.clone()
+                        } else {
+                            caps[0].to_string()
+                        }
+                    })
+                    .to_string();
             }
             drop(refs_guard);
 

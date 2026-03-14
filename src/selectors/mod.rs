@@ -117,7 +117,10 @@ pub fn element_info_js() -> &'static str {
 }
 
 /// Detect Playwright-style :has-text("...") and convert to text selector.
-pub fn normalize_selector_type(selector: &str, selector_type: SelectorType) -> (String, SelectorType) {
+pub fn normalize_selector_type(
+    selector: &str,
+    selector_type: SelectorType,
+) -> (String, SelectorType) {
     if matches!(selector_type, SelectorType::Css) {
         if let Some(start) = selector.find(":has-text(") {
             let after = &selector[start + ":has-text(".len()..];
@@ -150,7 +153,8 @@ mod tests {
 
     #[test]
     fn test_normalize_has_text_single_quotes() {
-        let (sel, st) = normalize_selector_type("button:has-text('Create Account')", SelectorType::Css);
+        let (sel, st) =
+            normalize_selector_type("button:has-text('Create Account')", SelectorType::Css);
         assert_eq!(sel, "Create Account");
         assert!(matches!(st, SelectorType::Text));
     }
